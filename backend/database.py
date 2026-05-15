@@ -12,6 +12,7 @@ _pool = None
 
 
 async def init_db():
+    global _pool
     _pool = await asyncpg.create_pool(
         os.getenv("DATABASE_URL"),
         min_size=1,
@@ -19,7 +20,37 @@ async def init_db():
         ssl="require",
         statement_cache_size=0,
     )
-    
+    async with _pool.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS state_history (
+                id          SERIAL PRIMARY KEY,
+                tf          TEXT NOT NULL,
+                state_label TEXT NOT NULL,
+                state_type  TEXT NOT NULL,
+                btc_chg     FLOAT DEFAULT 0,
+                btcd_chg    FLOAT DEFAULT 0,
+                total2_chg  FLOAT DEFAULT 0,
+                ethbtc_chg  FLOAT DEFAULT 0,
+                btcd_level  FLOAT DEFAULT 0,
+                score       FLOAT DEFAULT 0,
+                recorded_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sh_tf_ts
+            ON state_history (tf, recorded_at DESC)
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS push_subscriptions (
+                id         SERIAL PRIMARY KEY,
+                endpoint   TEXT UNIQUE NOT NULL,
+                p256dh     TEXT NOT NULL,
+                auth       TEXT NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+    logger.info("[DB] Initialized ✅")
+
     async with _pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS state_history (
