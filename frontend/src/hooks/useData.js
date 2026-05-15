@@ -4,7 +4,10 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../store'
 
-const BASE = import.meta.env.DEV ? 'http://localhost:8081' : ''
+// const BASE = import.meta.env.DEV ? 'http://localhost:8081' : ''
+const BASE = import.meta.env.DEV
+  ? 'http://localhost:8081'
+  : 'https://crypto-market-dashboard-m5jz.onrender.com'
 
 export async function fetchHistory(tf) {
   const r = await fetch(`${BASE}/api/history/${tf}?limit=100`)

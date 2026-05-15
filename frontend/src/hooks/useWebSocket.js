@@ -4,9 +4,12 @@
 import { useEffect, useRef } from 'react'
 import { useStore } from '../store'
 
+// const WS_URL = import.meta.env.DEV
+//   ? 'ws://localhost:8081/ws'
+//   : `wss://${window.location.host}/ws`
 const WS_URL = import.meta.env.DEV
   ? 'ws://localhost:8081/ws'
-  : `wss://${window.location.host}/ws`
+  : 'wss://crypto-market-dashboard-m5jz.onrender.com/ws'
 
 export function useWebSocket() {
   const ws           = useRef(null)
