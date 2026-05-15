@@ -69,7 +69,7 @@ TIMEFRAMES = {
 
 THRESHOLDS = {
     "1M": {
-        "btc":    0.04,
+        "btc":    0.06,
         "btcd":   0.00725,
         "total2": 0.05,
         "ethbtc": 0.03,
