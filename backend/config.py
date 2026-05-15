@@ -69,28 +69,28 @@ TIMEFRAMES = {
 
 THRESHOLDS = {
     "1M": {
-        "btc":    0.08,
-        "btcd":   0.015,
-        "total2": 0.10,
-        "ethbtc": 0.06,
+        "btc":    0.04,
+        "btcd":   0.00725,
+        "total2": 0.05,
+        "ethbtc": 0.03,
     },
     "1H": {
-        "btc":    1.0,
-        "btcd":   0.15,
-        "total2": 1.2,
-        "ethbtc": 0.8,
+        "btc":    0.5,
+        "btcd":   0.0752,
+        "total2": 0.6,
+        "ethbtc": 0.4,
     },
     "1D": {
-        "btc":    3.0,
-        "btcd":   0.50,
-        "total2": 4.0,
-        "ethbtc": 2.5,
+        "btc":    1.5,
+        "btcd":   0.25,
+        "total2": 2.0,
+        "ethbtc": 1.25,
     },
     "1W": {
-        "btc":    7.0,
-        "btcd":   1.00,
-        "total2": 8.0,
-        "ethbtc": 5.0,
+        "btc":    3.5,
+        "btcd":   0.5,
+        "total2": 3.0,
+        "ethbtc": 2.0,
     },
 }
 
