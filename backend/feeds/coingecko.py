@@ -81,13 +81,13 @@ class CoinGeckoFeed:
 
     async def run(self):
         async with aiohttp.ClientSession() as session:
-            await self._load_opens(session)
+            for attempt in range(5):
+                await self._load_opens(session)
+                if self.state.get("global"):
+                    break
+                logger.warning(f"[GlobalOpen] Retry {attempt + 1}/5...")
+                await asyncio.sleep(5)
         while True:
-            try:
-                await self._fetch_all()
-            except Exception as e:
-                logger.error(f"[CoinGecko] {e}")
-            await asyncio.sleep(COINGECKO_REFRESH_SECONDS)
 
     # ----------------------------------------------------------
     # Startup: load candle opens via BTC ratio approximation
