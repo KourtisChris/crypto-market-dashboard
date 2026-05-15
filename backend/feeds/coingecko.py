@@ -103,7 +103,9 @@ class CoinGeckoFeed:
     async def _load_opens(self, session):
         logger.info("[GlobalOpen] Loading candle opens from Binance...")
         try:
-            btc_now  = await self._btc_price_now(session)
+            # Παίρνουμε BTC price από το 1M candle open που ήδη έχουμε
+            from feeds.binance import _opens
+            btc_now = _opens.get("BTCUSDT_1M") or await self._btc_price_now(session)
             btcd_now = await self._btcd_from_cmc(session)
             cg       = await self._cg_global_raw(session)
             if not all([btc_now, btcd_now, cg]):
