@@ -83,7 +83,8 @@ class CoinGeckoFeed:
         async with aiohttp.ClientSession() as session:
             for attempt in range(5):
                 await self._load_opens(session)
-                if self.state.get("global"):
+                from coingecko import _global_opens
+                if _global_opens:
                     break
                 logger.warning(f"[GlobalOpen] Retry {attempt + 1}/5...")
                 await asyncio.sleep(5)
