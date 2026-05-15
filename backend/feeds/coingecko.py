@@ -107,7 +107,7 @@ class CoinGeckoFeed:
             btcd_now = await self._btcd_from_cmc(session)
             cg       = await self._cg_global_raw(session)
             if not all([btc_now, btcd_now, cg]):
-                logger.warning("[GlobalOpen] Missing data — skipping")
+                logger.warning(f"[GlobalOpen] Missing: btc={bool(btc_now)} btcd={bool(btcd_now)} cg={bool(cg)}")
                 return
             for tf in TIMEFRAMES:
                 btc_open = await self._btc_candle_open(session, _BINANCE_INTERVAL[tf])
