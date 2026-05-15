@@ -51,37 +51,6 @@ async def init_db():
         """)
     logger.info("[DB] Initialized ✅")
 
-    async with _pool.acquire() as conn:
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS state_history (
-                id          SERIAL PRIMARY KEY,
-                tf          TEXT NOT NULL,
-                state_label TEXT NOT NULL,
-                state_type  TEXT NOT NULL,
-                btc_chg     FLOAT DEFAULT 0,
-                btcd_chg    FLOAT DEFAULT 0,
-                total2_chg  FLOAT DEFAULT 0,
-                ethbtc_chg  FLOAT DEFAULT 0,
-                btcd_level  FLOAT DEFAULT 0,
-                score       FLOAT DEFAULT 0,
-                recorded_at TIMESTAMPTZ DEFAULT NOW()
-            )
-        """)
-        await conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_sh_tf_ts
-            ON state_history (tf, recorded_at DESC)
-        """)
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS push_subscriptions (
-                id         SERIAL PRIMARY KEY,
-                endpoint   TEXT UNIQUE NOT NULL,
-                p256dh     TEXT NOT NULL,
-                auth       TEXT NOT NULL,
-                created_at TIMESTAMPTZ DEFAULT NOW()
-            )
-        """)
-    logger.info("[DB] Initialized ✅")
-
 
 # ----------------------------------------------------------
 # State History
@@ -133,6 +102,7 @@ async def get_latest_states() -> dict:
             result[tf] = dict(row) if row else None
     return result
 
+
 async def get_latest_state(tf: str) -> dict | None:
     async with _pool.acquire() as conn:
         row = await conn.fetchrow("""
@@ -141,6 +111,7 @@ async def get_latest_state(tf: str) -> dict | None:
             ORDER BY recorded_at DESC LIMIT 1
         """, tf)
     return dict(row) if row else None
+
 
 async def get_heatmap_data(tf: str) -> list[dict]:
     trunc_map    = {"1M": "minute", "1H": "hour",      "1D": "day",      "1W": "week"}
