@@ -88,6 +88,11 @@ class CoinGeckoFeed:
                 logger.warning(f"[GlobalOpen] Retry {attempt + 1}/5...")
                 await asyncio.sleep(5)
         while True:
+            try:
+                await self._fetch_all()
+            except Exception as e:
+                logger.error(f"[CoinGecko] {e}")
+            await asyncio.sleep(COINGECKO_REFRESH_SECONDS)
 
     # ----------------------------------------------------------
     # Startup: load candle opens via BTC ratio approximation
