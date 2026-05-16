@@ -81,12 +81,7 @@ class CoinGeckoFeed:
 
     async def run(self):
         async with aiohttp.ClientSession() as session:
-            for attempt in range(5):
-                await self._load_opens(session)
-                if self.state.get("global"):
-                    break
-                logger.warning(f"[GlobalOpen] Retry {attempt + 1}/5...")
-                await asyncio.sleep(5)
+            await self._load_opens(session)
         while True:
             try:
                 await self._fetch_all()
@@ -103,13 +98,11 @@ class CoinGeckoFeed:
     async def _load_opens(self, session):
         logger.info("[GlobalOpen] Loading candle opens from Binance...")
         try:
-            # Παίρνουμε BTC price από το 1M candle open που ήδη έχουμε
-            from feeds.binance import _opens
-            btc_now = _opens.get("BTCUSDT_1M") or await self._btc_price_now(session)
+            btc_now  = await self._btc_price_now(session)
             btcd_now = await self._btcd_from_cmc(session)
             cg       = await self._cg_global_raw(session)
             if not all([btc_now, btcd_now, cg]):
-                logger.warning(f"[GlobalOpen] Missing: btc={bool(btc_now)} btcd={bool(btcd_now)} cg={bool(cg)}")
+                logger.warning("[GlobalOpen] Missing data — skipping")
                 return
             for tf in TIMEFRAMES:
                 btc_open = await self._btc_candle_open(session, _BINANCE_INTERVAL[tf])

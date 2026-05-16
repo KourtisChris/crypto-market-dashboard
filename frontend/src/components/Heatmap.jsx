@@ -153,7 +153,7 @@ export default function Heatmap() {
             </div>
           ))}
           <div className="legend-item">
-            <div className="legend-dot" style={{ background: 'rgba(255,255,255,0.06)' }} />
+            <div className="legend-dot" style={{ background: 'rgba(5, 5, 5, 0.2)' }} />
             <span>no data</span>
           </div>
         </div>

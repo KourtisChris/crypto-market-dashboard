@@ -137,12 +137,10 @@ async def _check_states():
             await send_web_push(result.label, tf, result.type)
 
         elif prev == "":
-            # First run — only record if different from last saved state
-            last = await database.get_latest_state(tf)
-            if not last or last["state_label"] != result.label:
-                await database.record_state(
-                    tf, result.label, result.type, m, result.score
-                )
+            # First run — record initial state, no broadcast
+            await database.record_state(
+                tf, result.label, result.type, m, result.score
+            )
 
         prev_states[tf] = result.label
 
