@@ -38,64 +38,63 @@ TIMEFRAMES = {
 # Each state has: btc, btcd, total2, ethbtc
 # Values are the minimum % move required to activate a state
 
-# TEST THRESHOLDS - more noise for testing
-# THRESHOLDS = {
-#     "1M": {
-#         "btc":    0.008,
-#         "btcd":   0.0015,
-#         "total2": 0.010,
-#         "ethbtc": 0.006,
-#     },
-#     "1H": {
-#         "btc":    0.1,
-#         "btcd":   0.015,
-#         "total2": 0.12,
-#         "ethbtc": 0.08,
-#     },
-#     "1D": {
-#         "btc":    0.3,
-#         "btcd":   0.050,
-#         "total2": 0.4,
-#         "ethbtc": 0.25,
-#     },
-#     "1W": {
-#         "btc":    0.7,
-#         "btcd":   0.1,
-#         "total2": 0.8,
-#         "ethbtc": 0.5,
-#     },
-# }
-# LATE_ALTS_BTCD_LEVEL = 60
-
+# #TEST THRESHOLDS - more noise for testing
 THRESHOLDS = {
     "1M": {
-        "btc":    0.08,
-        "btcd":   0.015,
-        "total2": 0.10,
-        "ethbtc": 0.06,
+        "btc":    0.008,
+        "btcd":   0.0015,
+        "total2": 0.010,
+        "ethbtc": 0.006,
     },
     "1H": {
-        "btc":    1.0,
-        "btcd":   0.15,
-        "total2": 1.2,
-        "ethbtc": 0.8,
+        "btc":    0.1,
+        "btcd":   0.015,
+        "total2": 0.12,
+        "ethbtc": 0.08,
     },
     "1D": {
-        "btc":    3.0,
-        "btcd":   0.50,
-        "total2": 4.0,
-        "ethbtc": 2.5,
+        "btc":    0.3,
+        "btcd":   0.050,
+        "total2": 0.4,
+        "ethbtc": 0.25,
     },
     "1W": {
-        "btc":    7.0,
-        "btcd":   1.00,
-        "total2": 8.0,
-        "ethbtc": 5.0,
+        "btc":    0.7,
+        "btcd":   0.1,
+        "total2": 0.8,
+        "ethbtc": 0.5,
     },
 }
+LATE_ALTS_BTCD_LEVEL = 60
 
-# --- Late Alts BTC.D level threshold ---
-LATE_ALTS_BTCD_LEVEL = 57.0   # BTC.D below this = late cycle - default: 54
+# THRESHOLDS = {
+#     "1M": {
+#         "btc":    0.08,
+#         "btcd":   0.015,
+#         "total2": 0.10,
+#         "ethbtc": 0.06,
+#     },
+#     "1H": {
+#         "btc":    1.0,
+#         "btcd":   0.15,
+#         "total2": 1.2,
+#         "ethbtc": 0.8,
+#     },
+#     "1D": {
+#         "btc":    3.0,
+#         "btcd":   0.50,
+#         "total2": 4.0,
+#         "ethbtc": 2.5,
+#     },
+#     "1W": {
+#         "btc":    7.0,
+#         "btcd":   1.00,
+#         "total2": 8.0,
+#         "ethbtc": 5.0,
+#     },
+# }
+# # --- Late Alts BTC.D level threshold ---
+# LATE_ALTS_BTCD_LEVEL = 57.0   # BTC.D below this = late cycle - default: 54
 
 # --- Top N coins ---
 TOP_DIRECT_BTC = 50
