@@ -7,7 +7,7 @@ const STATE_COLORS = {
   short:    'rgba(255,23,68,0.8)',
   caution:  'rgba(255,171,0,0.8)',
   risk_off: 'rgba(180,0,255,0.75)',
-  neutral:  'rgba(200,205,216,0.25)',
+  neutral:  'rgba(218, 220, 225, 0.87)',
 }
 
 function buildGrid(tf, rawData) {
@@ -137,7 +137,10 @@ export default function Heatmap() {
                     : cell.data ? STATE_COLORS[cell.data.state_type] || STATE_COLORS.neutral
                     : 'transparent'
                   return (
-                    <div key={ci} className="heatmap-cell" style={{ background: bg }}
+                    <div key={ci} className="heatmap-cell" style={{ 
+                      background: bg,
+                      border: cell.isFuture ? '1px solid rgba(83, 80, 80, 0.54)' : 'none'
+                    }}
                       title={formatTooltip(tf, cell.ts, cell.data?.state_label)} />
                   )
                 })}
