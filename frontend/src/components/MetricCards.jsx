@@ -19,7 +19,7 @@ export default function MetricCards() {
   return (
     <section className="section">
       <div className="section-header">
-        <div className="section-title">Key Metrics</div>
+        <div className="section-title">Metrics</div>
         <div className="tf-tabs">
           {TFS.map(tf => (
             <button key={tf} className={`tf-tab ${activeTf === tf ? 'active' : ''}`} onClick={() => setTf(tf)}>

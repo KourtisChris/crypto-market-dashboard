@@ -22,7 +22,7 @@ export default function Topbar() {
     <>
       <header className="topbar">
         <div className="topbar-left">
-          <div className="logo">CRYPTO<span>.</span>STATE</div>
+          <div className="logo">CRYPTO<span>.</span>STATE [BETA]</div>
           <div className={`live-indicator ${connected ? 'live' : 'offline'}`}>
             <span className="live-dot" />
             {connected ? 'LIVE' : 'RECONNECTING'}
