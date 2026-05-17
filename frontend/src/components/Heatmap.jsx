@@ -7,7 +7,7 @@ const STATE_COLORS = {
   short:    'rgba(255,23,68,0.8)',
   caution:  'rgba(255,171,0,0.8)',
   risk_off: 'rgba(180,0,255,0.75)',
-  neutral:  'rgba(218, 220, 225, 0.87)',
+  neutral:  'rgba(202, 204, 207, 0.74)',
 }
 
 function buildGrid(tf, rawData) {
@@ -139,7 +139,7 @@ export default function Heatmap() {
                   return (
                     <div key={ci} className="heatmap-cell" style={{ 
                       background: bg,
-                      border: cell.isFuture ? '1px solid rgba(83, 80, 80, 0.54)' : 'none'
+                      border: cell.isFuture ? '1px solid rgba(65, 64, 64, 0.61)' : 'none'
                     }}
                       title={formatTooltip(tf, cell.ts, cell.data?.state_label)} />
                   )
@@ -155,6 +155,10 @@ export default function Heatmap() {
               <span>{type.replace('_', ' ')}</span>
             </div>
           ))}
+          <div className="legend-item">
+            <div className="legend-dot" style={{ background: 'transparent', border: '1px solid rgba(65, 64, 64, 0.61)' }} />
+            <span>no data</span>
+          </div>
         </div>
       </div>
     </section>
