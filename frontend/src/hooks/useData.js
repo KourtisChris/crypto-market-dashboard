@@ -51,11 +51,15 @@ export function useHistory(tf) {
 export function useHeatmap(tf) {
   const heatmap    = useStore(s => s.heatmap[tf])
   const setHeatmap = useStore(s => s.setHeatmap)
+
   useEffect(() => {
-    if (!heatmap.length) {
+    fetchHeatmap(tf).then(rows => setHeatmap(tf, rows))
+    const id = setInterval(() => {
       fetchHeatmap(tf).then(rows => setHeatmap(tf, rows))
-    }
+    }, 60000) // ανανέωση κάθε 1 λεπτό
+    return () => clearInterval(id)
   }, [tf])
+
   return heatmap
 }
 
