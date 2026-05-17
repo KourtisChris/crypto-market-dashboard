@@ -41,28 +41,28 @@ TIMEFRAMES = {
 # #TEST THRESHOLDS - more noise for testing
 THRESHOLDS = {
     "1M": {
-        "btc":    0.04,
-        "btcd":   0.0075,
-        "total2": 0.05,
-        "ethbtc": 0.03,
+        "btc":    0.04 / 2,
+        "btcd":   0.0075 / 2,
+        "total2": 0.05 / 2,
+        "ethbtc": 0.03 / 2,
     },
     "1H": {
-        "btc":    0.5,
-        "btcd":   0.075,
-        "total2": 0.6,
-        "ethbtc": 0.4,
+        "btc":    0.5 / 2,
+        "btcd":   0.075 / 2,
+        "total2": 0.6 / 2,
+        "ethbtc": 0.4 / 2,
     },
     "1D": {
-        "btc":    1.5,
-        "btcd":   0.25,
-        "total2": 2.0,
-        "ethbtc": 1.25,
+        "btc":    1.5 / 2,
+        "btcd":   0.25 / 2,
+        "total2": 2.0 / 2,
+        "ethbtc": 1.25 / 2,
     },
     "1W": {
-        "btc":    3.5,
-        "btcd":   0.7,
-        "total2": 4.0,
-        "ethbtc": 2.5,
+        "btc":    3.5 / 2,
+        "btcd":   0.7 / 2,
+        "total2": 4.0 / 2,
+        "ethbtc": 2.5 / 2,
     },
 }
 # --- Late Alts BTC.D level threshold ---
