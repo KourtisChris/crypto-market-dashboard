@@ -107,8 +107,8 @@ export default function StateCards() {
 
               {/* % distance from trigger */}
               {s && (
-                <div className="state-score" style={{ color: trigger?.color || 'var(--muted)' }}>
-                  {trigger ? trigger.text : `×${score.toFixed(1)} above trigger`}
+                <div className="state-score">
+                  {trigger ? trigger.text : `×${score.toFixed(1)} from trigger`}
                 </div>
               )}
 
