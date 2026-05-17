@@ -135,7 +135,7 @@ export default function Heatmap() {
                 {row.map((cell, ci) => {
                   const bg = cell.isFuture ? 'rgba(255,255,255,0.03)'
                     : cell.data ? STATE_COLORS[cell.data.state_type] || STATE_COLORS.neutral
-                    : 'rgba(255,255,255,0.06)'
+                    : 'transparent'
                   return (
                     <div key={ci} className="heatmap-cell" style={{ background: bg }}
                       title={formatTooltip(tf, cell.ts, cell.data?.state_label)} />
@@ -152,10 +152,6 @@ export default function Heatmap() {
               <span>{type.replace('_', ' ')}</span>
             </div>
           ))}
-          <div className="legend-item">
-            <div className="legend-dot" style={{ background: 'rgba(5, 5, 5, 0.2)' }} />
-            <span>no data</span>
-          </div>
         </div>
       </div>
     </section>
