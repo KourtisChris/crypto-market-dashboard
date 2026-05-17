@@ -108,7 +108,7 @@ export default function StateCards() {
               {/* % distance from trigger */}
               {s && (
                 <div className="state-score">
-                  {trigger ? trigger.text : `×${score.toFixed(1)} from trigger`}
+                  {trigger ? trigger.text : `${score.toFixed(1)}% from trigger`}
                 </div>
               )}
 
@@ -122,6 +122,9 @@ export default function StateCards() {
                       background: s ? typeColor(s.type) : 'var(--muted)'
                     }}
                   />
+                </div>
+                <div className="strength-label">
+                  {confidence < 30 ? 'Weak' : confidence < 60 ? 'Moderate' : confidence < 85 ? 'Strong' : 'Very Strong'} · {confidence}% confidence
                 </div>
               </div>
             </div>
