@@ -39,30 +39,31 @@ TIMEFRAMES = {
 # Values are the minimum % move required to activate a state
 
 # #TEST THRESHOLDS - more noise for testing
+THRESHOLD_MULTIPLIER = 0.4
 THRESHOLDS = {
     "1M": {
-        "btc":    0.04 / 3,
-        "btcd":   0.0075 / 3,
-        "total2": 0.05 / 3,
-        "ethbtc": 0.03 / 3,
+        "btc":    0.04 * THRESHOLD_MULTIPLIER,
+        "btcd":   0.0075 * THRESHOLD_MULTIPLIER,
+        "total2": 0.05 * THRESHOLD_MULTIPLIER,
+        "ethbtc": 0.03 * THRESHOLD_MULTIPLIER,
     },
     "1H": {
-        "btc":    0.5 / 3,
-        "btcd":   0.075 / 3,
-        "total2": 0.6 / 3,
-        "ethbtc": 0.4 / 3,
+        "btc":    0.5 * THRESHOLD_MULTIPLIER,
+        "btcd":   0.075 * THRESHOLD_MULTIPLIER,
+        "total2": 0.6 * THRESHOLD_MULTIPLIER,
+        "ethbtc": 0.4 * THRESHOLD_MULTIPLIER,
     },
     "1D": {
-        "btc":    1.5 / 3,
-        "btcd":   0.25 / 3,
-        "total2": 2.0 / 3,
-        "ethbtc": 1.25 / 3,
+        "btc":    1.5 * THRESHOLD_MULTIPLIER,
+        "btcd":   0.25 * THRESHOLD_MULTIPLIER,
+        "total2": 2.0 * THRESHOLD_MULTIPLIER,
+        "ethbtc": 1.25 * THRESHOLD_MULTIPLIER,
     },
     "1W": {
-        "btc":    3.5 / 3,
-        "btcd":   0.7 / 3,
-        "total2": 4.0 / 3,
-        "ethbtc": 2.5 / 3,
+        "btc":    3.5 * THRESHOLD_MULTIPLIER,
+        "btcd":   0.7 * THRESHOLD_MULTIPLIER,
+        "total2": 4.0 * THRESHOLD_MULTIPLIER,
+        "ethbtc": 2.5 * THRESHOLD_MULTIPLIER,
     },
 }
 # --- Late Alts BTC.D level threshold ---
