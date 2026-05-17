@@ -133,7 +133,7 @@ export default function Heatmap() {
               <div key={ri} className="heatmap-row">
                 <div className="heatmap-row-label">{grid.rowLabels[ri]}</div>
                 {row.map((cell, ci) => {
-                  const bg = cell.isFuture ? 'rgba(255,255,255,0.03)'
+                  const bg = cell.isFuture ? 'transparent'
                     : cell.data ? STATE_COLORS[cell.data.state_type] || STATE_COLORS.neutral
                     : 'transparent'
                   return (
