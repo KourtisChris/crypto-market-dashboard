@@ -143,7 +143,7 @@ async def _check_states():
                 await database.record_state(
                     tf, result.label, result.type, m, result.score
                 )
-
+        await database.record_heatmap_state(tf, result.label, result.type)
         prev_states[tf] = result.label
 
 

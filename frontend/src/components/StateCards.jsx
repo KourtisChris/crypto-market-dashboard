@@ -124,7 +124,7 @@ export default function StateCards() {
                   />
                 </div>
                 <div className="strength-label">
-                  {confidence < 30 ? 'Weak' : confidence < 60 ? 'Moderate' : confidence < 85 ? 'Strong' : 'Very Strong'} · {confidence}% confidence
+                  {confidence}% strength
                 </div>
               </div>
             </div>

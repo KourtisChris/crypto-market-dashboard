@@ -20,7 +20,6 @@ async def init_db():
         ssl="require",
         statement_cache_size=0,
     )
-    
     async with _pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS state_history (
@@ -49,6 +48,19 @@ async def init_db():
                 auth       TEXT NOT NULL,
                 created_at TIMESTAMPTZ DEFAULT NOW()
             )
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS heatmap_history (
+                id          SERIAL PRIMARY KEY,
+                tf          TEXT NOT NULL,
+                state_label TEXT NOT NULL,
+                state_type  TEXT NOT NULL,
+                recorded_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_hh_tf_ts
+            ON heatmap_history (tf, recorded_at DESC)
         """)
     logger.info("[DB] Initialized ✅")
 
@@ -103,6 +115,7 @@ async def get_latest_states() -> dict:
             result[tf] = dict(row) if row else None
     return result
 
+
 async def get_latest_state(tf: str) -> dict | None:
     async with _pool.acquire() as conn:
         row = await conn.fetchrow("""
@@ -111,6 +124,19 @@ async def get_latest_state(tf: str) -> dict | None:
             ORDER BY recorded_at DESC LIMIT 1
         """, tf)
     return dict(row) if row else None
+
+
+# ----------------------------------------------------------
+# Heatmap History — καταγράφεται κάθε κύκλο (κάθε λεπτό)
+# ώστε κάθε κελί του heatmap να έχει δικό του record
+# ----------------------------------------------------------
+async def record_heatmap_state(tf: str, state_label: str, state_type: str):
+    async with _pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO heatmap_history (tf, state_label, state_type)
+            VALUES ($1, $2, $3)
+        """, tf, state_label, state_type)
+
 
 async def get_heatmap_data(tf: str) -> list[dict]:
     trunc_map    = {"1M": "minute", "1H": "hour",      "1D": "day",      "1W": "week"}
@@ -122,7 +148,7 @@ async def get_heatmap_data(tf: str) -> list[dict]:
             SELECT DISTINCT ON (date_trunc('{trunc}', recorded_at))
                 date_trunc('{trunc}', recorded_at) AS period,
                 state_label, state_type
-            FROM state_history
+            FROM heatmap_history
             WHERE tf = $1 AND recorded_at >= NOW() - INTERVAL '{interval}'
             ORDER BY date_trunc('{trunc}', recorded_at) DESC, recorded_at DESC
         """, tf)
