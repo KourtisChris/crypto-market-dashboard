@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Shared state reference — injected from main.py
 _state: dict = {}
 
 def set_state(s: dict):
@@ -24,9 +23,6 @@ def set_state(s: dict):
     _state = s
 
 
-# ----------------------------------------------------------
-# GET /api/snapshot — full live data in one call
-# ----------------------------------------------------------
 @router.get("/api/snapshot")
 async def snapshot():
     prices = _state.get("prices", {})
@@ -85,9 +81,6 @@ async def snapshot():
     }
 
 
-# ----------------------------------------------------------
-# GET /api/history/{tf}
-# ----------------------------------------------------------
 @router.get("/api/history/{tf}")
 async def history(tf: str, limit: int = 50):
     if tf not in TIMEFRAMES:
@@ -96,9 +89,6 @@ async def history(tf: str, limit: int = 50):
     return {"tf": tf, "history": _serialize(rows)}
 
 
-# ----------------------------------------------------------
-# GET /api/heatmap/{tf}
-# ----------------------------------------------------------
 @router.get("/api/heatmap/{tf}")
 async def heatmap(tf: str):
     if tf not in TIMEFRAMES:
@@ -107,12 +97,9 @@ async def heatmap(tf: str):
     return {"tf": tf, "data": _serialize(rows)}
 
 
-# ----------------------------------------------------------
-# GET /api/latest-states
-# ----------------------------------------------------------
 @router.get("/api/latest-states")
 async def latest_states():
-    rows = await database.get_latest_states()   # returns dict {tf: row|None}
+    rows = await database.get_latest_states()
     result = {}
     for tf, row in rows.items():
         if row:
@@ -120,18 +107,18 @@ async def latest_states():
                 "label":       row["state_label"],
                 "type":        row["state_type"],
                 "recorded_at": row["recorded_at"].isoformat(),
+                "btc_price":   row.get("btc_price",  0) or 0,
+                "total2_val":  row.get("total2_val", 0) or 0,
+                "eth_price":   row.get("eth_price",  0) or 0,
             }
         else:
             result[tf] = None
     return result
 
 
-# ----------------------------------------------------------
-# Web Push
-# ----------------------------------------------------------
 class PushSub(BaseModel):
     endpoint: str
-    keys: dict   # { p256dh, auth }
+    keys: dict
 
 class PushUnsub(BaseModel):
     endpoint: str
@@ -159,9 +146,6 @@ async def vapid_public_key():
     return {"publicKey": key}
 
 
-# ----------------------------------------------------------
-# Helpers
-# ----------------------------------------------------------
 def _coin_dict(c) -> dict:
     return {
         "symbol":        c.symbol,

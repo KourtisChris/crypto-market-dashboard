@@ -2,58 +2,59 @@ import { useStore } from '../store'
 import { typeColor, typeClass, TFS, TF_LABELS, timeAgo } from '../utils'
 import { useLatestStates } from '../hooks/useData'
 
-// Thresholds per TF — same as backend config
-const THRESHOLDS = {
-  '1M': { btc: 0.08,  btcd: 0.015, total2: 0.10, ethbtc: 0.06 },
-  '1H': { btc: 0.5,   btcd: 0.12,  total2: 0.6,  ethbtc: 0.4  },
-  '1D': { btc: 1.5,   btcd: 0.25,  total2: 2.0,  ethbtc: 1.25 },
-  '1W': { btc: 3.5,   btcd: 0.5,   total2: 4.0,  ethbtc: 2.0  },
-}
-
 // ============================================================
-// Calculate % distance from trigger for the primary metric
-// of the current state type.
+// % change since signal — shows how much the primary asset
+// has moved since the signal was triggered
 //
-// Long states  (long, caution):  positive = above trigger (good)
-// Short states (short, risk_off): positive = below trigger (good)
+// BTC Long     → % change of BTC price since signal
+// Alts Long    → % change of TOTAL2 since signal
+// ETH Leading  → % change of ETH price since signal
+// Late Alts    → % change of TOTAL2 since signal
+// Alts Short   → % change of TOTAL2 since signal (inverted)
+// Risk Off     → % change of BTC price since signal
 // ============================================================
-function calcTriggerDistance(stateType, m, tf) {
-  if (!m || !stateType || stateType === 'neutral') return null
-  const thr = THRESHOLDS[tf]
-  if (!thr) return null
+function calcSinceSignal(stateType, stateLabel, latestState, currentPrices, currentGlobal) {
+  if (!stateType || stateType === 'neutral' || !latestState) return null
 
-  switch (stateType) {
-    case 'long':
-    case 'caution': {
-      // Primary metric: how far BTC.D has dropped below its threshold
-      // btcd_chg < -thr.btcd means dominance is falling (bullish for alts)
-      const dist = -(m.btcd_chg || 0) - thr.btcd
-      return { value: dist, primary: 'BTC.D' }
-    }
-    case 'short': {
-      // Primary metric: how far BTC has dropped below its threshold
-      const dist = -(m.btc_chg || 0) - thr.btc
-      return { value: dist, primary: 'BTC' }
-    }
-    case 'risk_off': {
-      // Primary metric: how far total2 has dropped below its threshold
-      const dist = -(m.total2_chg || 0) - thr.total2
-      return { value: dist, primary: 'TOTAL2' }
-    }
-    default:
-      return null
+  const label = (stateLabel || '').toLowerCase()
+
+  // Determine which asset to track and its signal-time price
+  let signalPrice = 0
+  let currentPrice = 0
+  let assetName = ''
+
+  if (label.includes('btc long') || label.includes('risk off')) {
+    signalPrice  = latestState.btc_price || 0
+    currentPrice = currentPrices?.BTCUSDT || 0
+    assetName    = 'BTC'
+  } else if (label.includes('eth leading')) {
+    signalPrice  = latestState.eth_price || 0
+    currentPrice = currentPrices?.ETHUSDT || 0
+    assetName    = 'ETH'
+  } else if (
+    label.includes('alts long') ||
+    label.includes('late alts') ||
+    label.includes('alts short')
+  ) {
+    signalPrice  = latestState.total2_val || 0
+    currentPrice = currentGlobal?.total2 || 0
+    assetName    = 'TOTAL2'
   }
+
+  if (!signalPrice || !currentPrice) return null
+
+  let pct = (currentPrice - signalPrice) / signalPrice * 100
+
+  // For short signals, invert: price going down is positive (good)
+  if (label.includes('alts short') || label.includes('risk off')) {
+    pct = -pct
+  }
+
+  return { pct: round2(pct), asset: assetName }
 }
 
-function formatTrigger(dist, stateType) {
-  if (!dist) return null
-  const val = dist.value
-  const sign = val >= 0 ? '+' : ''
-  const isLong = stateType === 'long' || stateType === 'caution'
-  const color = (isLong && val >= 0) || (!isLong && val >= 0)
-    ? 'var(--bull)'
-    : 'var(--bear)'
-  return { text: `${sign}${val.toFixed(2)}% from trigger`, color }
+function round2(v) {
+  return Math.round(v * 100) / 100
 }
 
 // Confidence bar
@@ -71,6 +72,8 @@ function calcConfidence(score, m) {
 export default function StateCards() {
   const states       = useStore(s => s.states)
   const metrics      = useStore(s => s.metrics)
+  const prices       = useStore(s => s.prices)
+  const global_      = useStore(s => s.global)
   const latestStates = useLatestStates()
 
   return (
@@ -85,8 +88,10 @@ export default function StateCards() {
           const score      = s?.score || 0
           const confidence = s ? calcConfidence(score, m) : 0
           const cls        = s ? typeClass(s.type) : 'neutral'
-          const dist       = s ? calcTriggerDistance(s.type, m, tf) : null
-          const trigger    = dist ? formatTrigger(dist, s.type) : null
+
+          const since = s && last
+            ? calcSinceSignal(s.type, s.label, last, prices, global_)
+            : null
 
           return (
             <div key={tf} className={`state-card card ${cls}`}>
@@ -105,10 +110,13 @@ export default function StateCards() {
                 {s ? `${s.emoji} ${s.label}` : '—'}
               </div>
 
-              {/* % distance from trigger */}
+              {/* % since signal */}
               {s && (
                 <div className="state-score">
-                  {trigger ? trigger.text : `${score.toFixed(1)}% from trigger`}
+                  {since
+                    ? `${since.asset}: ${since.pct >= 0 ? '+' : ''}${since.pct.toFixed(2)}% since signal`
+                    : '—'
+                  }
                 </div>
               )}
 

@@ -33,9 +33,18 @@ async def init_db():
                 ethbtc_chg  FLOAT DEFAULT 0,
                 btcd_level  FLOAT DEFAULT 0,
                 score       FLOAT DEFAULT 0,
+                btc_price   FLOAT DEFAULT 0,
+                total2_val  FLOAT DEFAULT 0,
+                eth_price   FLOAT DEFAULT 0,
                 recorded_at TIMESTAMPTZ DEFAULT NOW()
             )
         """)
+        # Add new columns if they don't exist (for existing tables)
+        for col, typ in [("btc_price", "FLOAT"), ("total2_val", "FLOAT"), ("eth_price", "FLOAT")]:
+            await conn.execute(f"""
+                ALTER TABLE state_history
+                ADD COLUMN IF NOT EXISTS {col} {typ} DEFAULT 0
+            """)
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_sh_tf_ts
             ON state_history (tf, recorded_at DESC)
@@ -69,7 +78,9 @@ async def init_db():
 # State History
 # ----------------------------------------------------------
 async def record_state(tf: str, state_label: str, state_type: str,
-                       metrics=None, score: float = 0.0):
+                       metrics=None, score: float = 0.0,
+                       btc_price: float = 0.0, total2_val: float = 0.0,
+                       eth_price: float = 0.0):
     btc_chg = btcd_chg = total2_chg = ethbtc_chg = btcd_level = 0.0
     if metrics:
         btc_chg    = round(metrics.btc_chg,    4)
@@ -81,11 +92,13 @@ async def record_state(tf: str, state_label: str, state_type: str,
         await conn.execute("""
             INSERT INTO state_history
                 (tf, state_label, state_type, btc_chg, btcd_chg,
-                 total2_chg, ethbtc_chg, btcd_level, score)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                 total2_chg, ethbtc_chg, btcd_level, score,
+                 btc_price, total2_val, eth_price)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
         """, tf, state_label, state_type,
             btc_chg, btcd_chg, total2_chg, ethbtc_chg, btcd_level,
-            round(score, 4))
+            round(score, 4),
+            round(btc_price, 2), round(total2_val, 0), round(eth_price, 4))
     logger.info(f"[DB] State recorded: [{tf}] {state_label} (score: {score:.3f})")
 
 
@@ -108,7 +121,8 @@ async def get_latest_states() -> dict:
     async with _pool.acquire() as conn:
         for tf in ["1M", "1H", "1D", "1W"]:
             row = await conn.fetchrow("""
-                SELECT state_label, state_type, recorded_at
+                SELECT state_label, state_type, recorded_at,
+                       btc_price, total2_val, eth_price
                 FROM state_history WHERE tf = $1
                 ORDER BY recorded_at DESC LIMIT 1
             """, tf)
@@ -127,8 +141,7 @@ async def get_latest_state(tf: str) -> dict | None:
 
 
 # ----------------------------------------------------------
-# Heatmap History — καταγράφεται κάθε κύκλο (κάθε λεπτό)
-# ώστε κάθε κελί του heatmap να έχει δικό του record
+# Heatmap History
 # ----------------------------------------------------------
 async def record_heatmap_state(tf: str, state_label: str, state_type: str):
     async with _pool.acquire() as conn:

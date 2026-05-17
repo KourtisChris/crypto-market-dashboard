@@ -18,9 +18,6 @@ from engine.signals  import build_metrics, get_market_state, score_coins
 from api.routes      import router, set_state
 from api.websocket   import manager, broadcast_state_change, send_web_push
 
-# ----------------------------------------------------------
-# Logging
-# ----------------------------------------------------------
 logging.basicConfig(
     level  = logging.INFO,
     format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -28,9 +25,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("main")
 
-# ----------------------------------------------------------
-# FastAPI app
-# ----------------------------------------------------------
 app = FastAPI(title="Crypto Market Dashboard", version="2.0.0")
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -68,15 +62,11 @@ async def websocket_endpoint(ws: WebSocket):
     finally:
         manager.disconnect(ws)
 
-# Serve React frontend from /frontend/dist
 _frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 if os.path.exists(_frontend_path):
     app.mount("/", StaticFiles(directory=_frontend_path, html=True), name="frontend")
     logger.info(f"[App] Serving frontend from {_frontend_path}")
 
-# ----------------------------------------------------------
-# Shared state
-# ----------------------------------------------------------
 state: dict = {
     "prices": {},
     "global": {},
@@ -85,9 +75,6 @@ state: dict = {
 
 prev_states: dict[str, str] = {tf: "" for tf in TIMEFRAMES}
 
-# ----------------------------------------------------------
-# Engine loop — checks market state every 60s
-# ----------------------------------------------------------
 async def engine_loop():
     logger.info("[Engine] Waiting for initial data...")
     for _ in range(60):
@@ -107,6 +94,9 @@ async def engine_loop():
 
 
 async def _check_states():
+    prices = state.get("prices", {})
+    glb    = state.get("global", {})
+
     for tf in TIMEFRAMES:
         m = build_metrics(tf, state)
         if m is None:
@@ -120,36 +110,39 @@ async def _check_states():
             f"BTC:{m.btc_chg:.2f}% BTC.D:{m.btcd_chg:.2f}% T2:{m.total2_chg:.2f}%"
         )
 
+        # Current asset prices for "% from signal" feature
+        btc_price  = prices.get("BTCUSDT", 0) or 0
+        eth_price  = prices.get("ETHUSDT", 0) or 0
+        total2_val = glb.get("total2", 0) or 0
+
         if result.label != prev and prev != "":
             logger.info(f"[Engine] {tf}: {prev} → {result.label}")
 
-            # 1. Save to database
             await database.record_state(
-                tf, result.label, result.type, m, result.score
+                tf, result.label, result.type, m, result.score,
+                btc_price=btc_price,
+                total2_val=total2_val,
+                eth_price=eth_price,
             )
-
-            # 2. Broadcast via WebSocket
             await broadcast_state_change(
                 tf, result.label, result.type, result.score, m
             )
-
-            # 3. Web Push notification
             await send_web_push(result.label, tf, result.type)
 
         elif prev == "":
-            # First run — only record if different from last saved state
             last = await database.get_latest_state(tf)
             if not last or last["state_label"] != result.label:
                 await database.record_state(
-                    tf, result.label, result.type, m, result.score
+                    tf, result.label, result.type, m, result.score,
+                    btc_price=btc_price,
+                    total2_val=total2_val,
+                    eth_price=eth_price,
                 )
+
         await database.record_heatmap_state(tf, result.label, result.type)
         prev_states[tf] = result.label
 
 
-# ----------------------------------------------------------
-# Entry point
-# ----------------------------------------------------------
 async def main():
     logger.info("=" * 52)
     logger.info("  Crypto Market Dashboard — Starting")
