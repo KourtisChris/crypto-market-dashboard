@@ -12,14 +12,14 @@ _pool = None
 
 
 async def init_db():
-    global _pool
     _pool = await asyncpg.create_pool(
-    os.getenv("DATABASE_URL"),
-    min_size=1,
-    max_size=5,
-    ssl="require",
-    statement_cache_size=0,
-)
+        os.getenv("DATABASE_URL"),
+        min_size=1,
+        max_size=5,
+        ssl="require",
+        statement_cache_size=0,
+    )
+    
     async with _pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS state_history (
@@ -102,6 +102,14 @@ async def get_latest_states() -> dict:
             result[tf] = dict(row) if row else None
     return result
 
+async def get_latest_state(tf: str) -> dict | None:
+    async with _pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT state_label, state_type, score, recorded_at
+            FROM state_history WHERE tf = $1
+            ORDER BY recorded_at DESC LIMIT 1
+        """, tf)
+    return dict(row) if row else None
 
 async def get_heatmap_data(tf: str) -> list[dict]:
     trunc_map    = {"1M": "minute", "1H": "hour",      "1D": "day",      "1W": "week"}
