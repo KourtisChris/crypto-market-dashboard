@@ -39,7 +39,6 @@ async def init_db():
                 recorded_at TIMESTAMPTZ DEFAULT NOW()
             )
         """)
-        # Add new columns if they don't exist (for existing tables)
         for col, typ in [("btc_price", "FLOAT"), ("total2_val", "FLOAT"), ("eth_price", "FLOAT")]:
             await conn.execute(f"""
                 ALTER TABLE state_history
@@ -70,6 +69,12 @@ async def init_db():
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_hh_tf_ts
             ON heatmap_history (tf, recorded_at DESC)
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS telegram_subscribers (
+                chat_id    TEXT PRIMARY KEY,
+                joined_at  TIMESTAMPTZ DEFAULT NOW()
+            )
         """)
     logger.info("[DB] Initialized ✅")
 
@@ -166,6 +171,33 @@ async def get_heatmap_data(tf: str) -> list[dict]:
             ORDER BY date_trunc('{trunc}', recorded_at) DESC, recorded_at DESC
         """, tf)
     return [dict(r) for r in rows]
+
+
+# ----------------------------------------------------------
+# Telegram Subscribers
+# ----------------------------------------------------------
+async def add_telegram_subscriber(chat_id: str):
+    async with _pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO telegram_subscribers (chat_id)
+            VALUES ($1)
+            ON CONFLICT (chat_id) DO NOTHING
+        """, chat_id)
+    logger.info(f"[Telegram] Subscriber added: {chat_id}")
+
+
+async def remove_telegram_subscriber(chat_id: str):
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM telegram_subscribers WHERE chat_id = $1", chat_id
+        )
+    logger.info(f"[Telegram] Subscriber removed: {chat_id}")
+
+
+async def get_telegram_subscribers() -> list[str]:
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch("SELECT chat_id FROM telegram_subscribers")
+    return [row["chat_id"] for row in rows]
 
 
 # ----------------------------------------------------------

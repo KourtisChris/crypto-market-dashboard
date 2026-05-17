@@ -1,26 +1,16 @@
 import { useState, useEffect } from 'react'
 import { useStore } from '../store'
 
-const BASE = import.meta.env.DEV ? 'http://localhost:8081' : ''
-
-function urlBase64ToUint8Array(base64) {
-  const padding = '='.repeat((4 - base64.length % 4) % 4)
-  const b64 = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/')
-  const raw = atob(b64)
-  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)))
-}
-
 export default function Topbar() {
-  const connected    = useStore(s => s.connected)
-  const notifEnabled = useStore(s => s.notifEnabled)
-  const setNotif     = useStore(s => s.setNotifEnabled)
-  const [utc, setUtc] = useState('')
+  const connected = useStore(s => s.connected)
+  const [utc, setUtc]         = useState('')
+  const [showModal, setModal] = useState(false)
 
   useEffect(() => {
     const tick = () => {
-      const now = new Date()
+      const now  = new Date()
       const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+      const tz   = Intl.DateTimeFormat().resolvedOptions().timeZone
       setUtc(`${time} ${tz}`)
     }
     tick()
@@ -28,53 +18,58 @@ export default function Topbar() {
     return () => clearInterval(id)
   }, [])
 
-  async function toggleNotifications() {
-    if (notifEnabled) { setNotif(false); return }
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      alert('Web Push not supported in this browser.')
-      return
-    }
-    try {
-      const perm = await Notification.requestPermission()
-      if (perm !== 'granted') return
-      const keyRes = await fetch(`${BASE}/api/push/vapid-public-key`)
-      const { publicKey } = await keyRes.json()
-      const reg = await navigator.serviceWorker.register('/sw.js')
-      await navigator.serviceWorker.ready
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
-      })
-      const json = sub.toJSON()
-      await fetch(`${BASE}/api/push/subscribe`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ endpoint: sub.endpoint, keys: json.keys }),
-      })
-      setNotif(true)
-    } catch (err) {
-      console.error('Push failed:', err)
-    }
-  }
-
   return (
-    <header className="topbar">
-      <div className="topbar-left">
-        <div className="logo">CRYPTO<span>.</span>STATE</div>
-        <div className={`live-indicator ${connected ? 'live' : 'offline'}`}>
-          <span className="live-dot" />
-          {connected ? 'LIVE' : 'RECONNECTING'}
+    <>
+      <header className="topbar">
+        <div className="topbar-left">
+          <div className="logo">CRYPTO<span>.</span>STATE</div>
+          <div className={`live-indicator ${connected ? 'live' : 'offline'}`}>
+            <span className="live-dot" />
+            {connected ? 'LIVE' : 'RECONNECTING'}
+          </div>
         </div>
-      </div>
-      <div className="topbar-right">
-        <div className="utc-clock">{utc}</div>
-        <button
-          className={`notif-btn ${notifEnabled ? 'active' : ''}`}
-          onClick={toggleNotifications}
-        >
-          {notifEnabled ? '🔔 ON' : '🔔 Alerts'}
-        </button>
-      </div>
-    </header>
+        <div className="topbar-right">
+          <div className="utc-clock">{utc}</div>
+          <button className="notif-btn" onClick={() => setModal(true)}>
+            🔔 Alerts
+          </button>
+        </div>
+      </header>
+
+      {showModal && (
+        <div className="modal-overlay" onClick={() => setModal(false)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setModal(false)}>✕</button>
+            <div className="modal-title">📬 Get Market State Alerts</div>
+            <div className="modal-body">
+              <p>Receive instant Telegram notifications whenever the market state changes.</p>
+              <div className="modal-steps">
+                <div className="modal-step">
+                  <span className="step-num">1</span>
+                  <span>Open the Telegram bot:</span>
+                </div>
+                <a
+                  href="https://t.me/TestMarketStateAlert_bot"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="modal-bot-link"
+                >
+                  @TestMarketStateAlert_bot
+                </a>
+                <div className="modal-step">
+                  <span className="step-num">2</span>
+                  <span>Press <code>/start</code> in the chat</span>
+                </div>
+                <div className="modal-step">
+                  <span className="step-num">3</span>
+                  <span>Done! You will receive alerts for every state change.</span>
+                </div>
+              </div>
+              <p className="modal-note">Send <code>/stop</code> to the bot to unsubscribe at any time.</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
