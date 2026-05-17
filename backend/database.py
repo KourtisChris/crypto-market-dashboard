@@ -12,6 +12,7 @@ _pool = None
 
 
 async def init_db():
+    global _pool
     _pool = await asyncpg.create_pool(
         os.getenv("DATABASE_URL"),
         min_size=1,
