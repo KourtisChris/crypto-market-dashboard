@@ -139,7 +139,7 @@ export default function Heatmap() {
                   return (
                     <div key={ci} className="heatmap-cell" style={{ 
                       background: bg,
-                      border: cell.isFuture ? '1px solid rgba(65, 64, 64, 0.61)' : 'none'
+                      border: !cell.data ? '1px solid rgba(65, 64, 64, 0.61)' : 'none'
                     }}
                       title={formatTooltip(tf, cell.ts, cell.data?.state_label)} />
                   )
