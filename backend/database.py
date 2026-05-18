@@ -39,7 +39,7 @@ async def init_db():
                 recorded_at TIMESTAMPTZ DEFAULT NOW()
             )
         """)
-        for col, typ in [("btc_price", "FLOAT"), ("total2_val", "FLOAT"), ("eth_price", "FLOAT")]:
+        for col, typ in [("btc_price","FLOAT"),("total2_val","FLOAT"),("eth_price","FLOAT")]:
             await conn.execute(f"""
                 ALTER TABLE state_history
                 ADD COLUMN IF NOT EXISTS {col} {typ} DEFAULT 0
@@ -75,6 +75,20 @@ async def init_db():
                 chat_id    TEXT PRIMARY KEY,
                 joined_at  TIMESTAMPTZ DEFAULT NOW()
             )
+        """)
+        # Volume history for 30-day rolling average
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS volume_history (
+                id          SERIAL PRIMARY KEY,
+                btc_24h     FLOAT DEFAULT 0,
+                alt_24h     FLOAT DEFAULT 0,
+                total_24h   FLOAT DEFAULT 0,
+                recorded_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_vh_ts
+            ON volume_history (recorded_at DESC)
         """)
     logger.info("[DB] Initialized ✅")
 
@@ -113,10 +127,8 @@ async def get_state_history(tf: str, limit: int = 50) -> list[dict]:
             SELECT id, tf, state_label, state_type,
                    btc_chg, btcd_chg, total2_chg, ethbtc_chg,
                    btcd_level, score, recorded_at
-            FROM state_history
-            WHERE tf = $1
-            ORDER BY recorded_at DESC
-            LIMIT $2
+            FROM state_history WHERE tf = $1
+            ORDER BY recorded_at DESC LIMIT $2
         """, tf, limit)
     return [dict(r) for r in rows]
 
@@ -174,14 +186,51 @@ async def get_heatmap_data(tf: str) -> list[dict]:
 
 
 # ----------------------------------------------------------
+# Volume History (30-day rolling average)
+# ----------------------------------------------------------
+async def record_volume(btc_24h: float, alt_24h: float, total_24h: float):
+    async with _pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO volume_history (btc_24h, alt_24h, total_24h)
+            VALUES ($1, $2, $3)
+        """, btc_24h, alt_24h, total_24h)
+    # Cleanup old records > 31 days
+    async with _pool.acquire() as conn:
+        await conn.execute("""
+            DELETE FROM volume_history
+            WHERE recorded_at < NOW() - INTERVAL '31 days'
+        """)
+
+
+async def get_volume_averages() -> dict:
+    """Returns 30-day average volumes. Returns None if < 24h of data."""
+    async with _pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT
+                AVG(btc_24h)   AS btc_24h,
+                AVG(alt_24h)   AS alt_24h,
+                AVG(total_24h) AS total_24h,
+                COUNT(*)       AS cnt
+            FROM volume_history
+            WHERE recorded_at >= NOW() - INTERVAL '30 days'
+        """)
+    if not row or row["cnt"] < 24:  # Need at least 24 data points (1 day)
+        return {}
+    return {
+        "btc_24h":   float(row["btc_24h"]   or 0),
+        "alt_24h":   float(row["alt_24h"]   or 0),
+        "total_24h": float(row["total_24h"] or 0),
+    }
+
+
+# ----------------------------------------------------------
 # Telegram Subscribers
 # ----------------------------------------------------------
 async def add_telegram_subscriber(chat_id: str):
     async with _pool.acquire() as conn:
         await conn.execute("""
             INSERT INTO telegram_subscribers (chat_id)
-            VALUES ($1)
-            ON CONFLICT (chat_id) DO NOTHING
+            VALUES ($1) ON CONFLICT (chat_id) DO NOTHING
         """, chat_id)
     logger.info(f"[Telegram] Subscriber added: {chat_id}")
 

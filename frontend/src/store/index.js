@@ -29,10 +29,13 @@ export const useStore = create((set) => ({
   lastAlert:    null,
   setLastAlert: (alert) => set({ lastAlert: alert }),
 
-  // Single global TF that controls ALL 4 section tabs
-  activeTf:   '1H',
+  activeTf:    '1H',
   setActiveTf: (tf) => set({ activeTf: tf }),
 
   notifEnabled:    false,
   setNotifEnabled: (v) => set({ notifEnabled: v }),
+
+  // Confirmation data (per-tf signal scores + raw indicators)
+  confirmations: null,
+  setConfirmations: (data) => set({ confirmations: data }),
 }))

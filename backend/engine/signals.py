@@ -1,15 +1,32 @@
 # ============================================================
 # backend/engine/signals.py
-# 7 market states with composite score-based selection.
-# When multiple states are active simultaneously, the one
-# with the highest normalized composite score wins.
+# 7 market states with primary + confirmation scoring.
+#
+# Activation rule:
+#   ALL primary criteria must be met
+#   AND at least 1 confirmation criterion must be met
+#
+# Score = hits / total_criteria (ratio 0.0–1.0)
+# Confidence: High >= 0.75, Medium >= 0.50, Low >= 0.28
+#
+# Conflict resolution (when multiple signals qualify):
+#   1. Highest score wins
+#   2. Tie: most primary hits
+#   3. Tie: priority order (Risk Off > Alts Short > BTC Long > ...)
 # ============================================================
 
-from dataclasses import dataclass, field
-
-from config import THRESHOLDS, LATE_ALTS_BTCD_LEVEL
+from dataclasses import dataclass
+from config import (
+    THRESHOLDS, LATE_ALTS_BTCD_LEVEL, SIGNAL_PRIORITY,
+    FUNDING_DEEPLY_NEGATIVE, FUNDING_NEGATIVE,
+    FUNDING_NEUTRAL_MIN, FUNDING_NEUTRAL_MAX, FUNDING_HIGH_POSITIVE,
+    FEAR_GREED_EXTREME_FEAR, FEAR_GREED_FEAR,
+    FEAR_GREED_NEUTRAL_MAX, FEAR_GREED_GREED_MAX,
+    STABLE_D_SHARPLY_RISING, STABLE_D_RISING, STABLE_D_FALLING,
+    VOLUME_ABOVE_AVG_RATIO, VOLUME_BELOW_AVG_RATIO,
+)
 from feeds.binance import get_pct_change, get_altbtc_pct
-from feeds.coingecko import get_global_pct_change
+from feeds.coingecko import get_global_pct_change, get_stable_d_change, get_fear_greed
 
 
 # ----------------------------------------------------------
@@ -17,20 +34,55 @@ from feeds.coingecko import get_global_pct_change
 # ----------------------------------------------------------
 @dataclass
 class Metrics:
-    btc_chg:    float   # BTC % change from candle open
-    btcd_chg:   float   # BTC.D % change from candle open
-    total2_chg: float   # TOTAL2 % change
-    total3_chg: float   # TOTAL3 % change
-    ethbtc_chg: float   # ETH/BTC % change
-    btcd_level: float   # current BTC.D absolute value
+    btc_chg:    float
+    btcd_chg:   float
+    total2_chg: float
+    total3_chg: float
+    ethbtc_chg: float
+    btcd_level: float
+
+
+@dataclass
+class ConfirmationData:
+    """Evaluated confirmation criteria values."""
+    btc_volume_ratio:   float | None   # current / 30d avg
+    alt_volume_ratio:   float | None
+    total_volume_ratio: float | None
+    funding_rate:       float | None
+    fear_greed_value:   int | None
+    stable_d_change:    float | None   # pp change over ~1h
+    # stale flags
+    volume_stale:       bool = True
+    funding_stale:      bool = True
+    fear_greed_stale:   bool = True
+
+
+@dataclass
+class SignalScore:
+    label:         str
+    type:          str
+    emoji:         str
+    hits:          int
+    total:         int
+    score:         float    # hits / total
+    confidence:    str      # "High" | "Medium" | "Low" | "None"
+    primary_hits:  int
+    primary_total: int
+    active:        bool     # True if qualifies (all primary met + >=1 confirmation)
 
 
 @dataclass
 class StateResult:
-    label:  str
-    type:   str    # "long" | "short" | "neutral" | "caution" | "risk_off"
-    score:  float  # composite normalized score (higher = stronger signal)
-    emoji:  str
+    label:         str
+    type:          str
+    score:         float    # legacy composite score for heatmap/history
+    emoji:         str
+    hits:          int
+    total:         int
+    confidence:    str
+    primary_hits:  int
+    primary_total: int
+    all_scores:    list     # list of SignalScore for all signals
 
 
 @dataclass
@@ -40,139 +92,313 @@ class CoinScore:
     altbtc_chg:    float
     vs_total2:     float
     score:         float
-    hidden_signal: str = ""   # "hidden_strength" | "hidden_weakness" | ""
+    hidden_signal: str = ""
 
 
 # ----------------------------------------------------------
-# State definitions
-# Each state has:
-#   - check(m, thr) → bool: are conditions met?
-#   - score(m, thr) → float: normalized composite strength
+# Confidence label
+# ----------------------------------------------------------
+def _confidence_label(score: float) -> str:
+    if score >= 0.75:
+        return "High"
+    if score >= 0.50:
+        return "Medium"
+    if score >= 0.28:
+        return "Low"
+    return "None"
+
+
+# ----------------------------------------------------------
+# Confirmation helpers
+# ----------------------------------------------------------
+def _volume_above_avg(ratio: float | None) -> bool:
+    if ratio is None:
+        return False
+    return ratio >= VOLUME_ABOVE_AVG_RATIO
+
+def _volume_falling(ratio: float | None) -> bool:
+    if ratio is None:
+        return False
+    return ratio < VOLUME_BELOW_AVG_RATIO
+
+def _funding_neutral_or_negative(rate: float | None) -> bool:
+    if rate is None:
+        return False
+    return rate <= FUNDING_NEUTRAL_MAX
+
+def _funding_deeply_negative(rate: float | None) -> bool:
+    if rate is None:
+        return False
+    return rate < FUNDING_DEEPLY_NEGATIVE
+
+def _funding_high_positive(rate: float | None) -> bool:
+    if rate is None:
+        return False
+    return rate > FUNDING_HIGH_POSITIVE
+
+def _fg_fear(val: int | None) -> bool:
+    if val is None:
+        return False
+    return val < FEAR_GREED_FEAR
+
+def _fg_extreme_fear(val: int | None) -> bool:
+    if val is None:
+        return False
+    return val < FEAR_GREED_EXTREME_FEAR
+
+def _fg_neutral_to_greed(val: int | None) -> bool:
+    if val is None:
+        return False
+    return FEAR_GREED_FEAR <= val < FEAR_GREED_GREED_MAX
+
+def _fg_mid_greed(val: int | None) -> bool:
+    if val is None:
+        return False
+    return FEAR_GREED_NEUTRAL_MAX <= val < FEAR_GREED_GREED_MAX
+
+def _fg_extreme_greed(val: int | None) -> bool:
+    if val is None:
+        return False
+    return val >= FEAR_GREED_GREED_MAX
+
+def _stable_d_falling(change: float | None) -> bool:
+    if change is None:
+        return False
+    return change < STABLE_D_FALLING
+
+def _stable_d_rising(change: float | None) -> bool:
+    if change is None:
+        return False
+    return change > STABLE_D_RISING
+
+def _stable_d_sharply_rising(change: float | None) -> bool:
+    if change is None:
+        return False
+    return change > STABLE_D_SHARPLY_RISING
+
+
+# ----------------------------------------------------------
+# Signal definitions
+# Each has: primary_check, confirmations list
 # ----------------------------------------------------------
 
-class _State:
-    label: str
-    type:  str
-    emoji: str
+def _eval_btc_long(m: Metrics, thr: dict, c: ConfirmationData) -> SignalScore:
+    # Primary (all must be True)
+    p1 = m.btc_chg  > thr["btc"]
+    p2 = m.btcd_chg > thr["btcd"]
+    primaries = [p1, p2]
+    primary_hits = sum(primaries)
 
-    @classmethod
-    def check(cls, m: Metrics, thr: dict) -> bool:
-        raise NotImplementedError
+    # Confirmation (at least 1 must be True)
+    cf1 = _volume_above_avg(c.btc_volume_ratio)
+    cf2 = _funding_neutral_or_negative(c.funding_rate)
+    cf3 = _fg_fear(c.fear_greed_value)
+    cf4 = _stable_d_falling(c.stable_d_change)
+    confirmations = [cf1, cf2, cf3, cf4]
+    conf_hits = sum(confirmations)
 
-    @classmethod
-    def score(cls, m: Metrics, thr: dict) -> float:
-        raise NotImplementedError
+    hits  = primary_hits + conf_hits
+    total = len(primaries) + len(confirmations)
+    score = hits / total
+    active = all(primaries) and conf_hits >= 1
 
-
-class BTCLong(_State):
-    label = "BTC Long"
-    type  = "long"
-    emoji = "🟠"
-
-    @classmethod
-    def check(cls, m: Metrics, thr: dict) -> bool:
-        return m.btc_chg > thr["btc"] and m.btcd_chg > thr["btcd"]
-
-    @classmethod
-    def score(cls, m: Metrics, thr: dict) -> float:
-        # Both BTC and BTC.D must be rising — score = average of normalized moves
-        return (m.btc_chg / thr["btc"] + m.btcd_chg / thr["btcd"]) / 2
-
-
-class AltsLong(_State):
-    label = "Alts Long"
-    type  = "long"
-    emoji = "🟢"
-
-    @classmethod
-    def check(cls, m: Metrics, thr: dict) -> bool:
-        btc_flat_or_up = m.btc_chg > -thr["btc"]
-        btcd_falling   = m.btcd_chg < -thr["btcd"]
-        t2_rising      = m.total2_chg > thr["total2"]
-        return btc_flat_or_up and btcd_falling and t2_rising
-
-    @classmethod
-    def score(cls, m: Metrics, thr: dict) -> float:
-        return (abs(m.btcd_chg) / thr["btcd"] + m.total2_chg / thr["total2"]) / 2
+    return SignalScore(
+        label="BTC Long", type="long", emoji="🟠",
+        hits=hits, total=total, score=round(score, 3),
+        confidence=_confidence_label(score) if active else "None",
+        primary_hits=primary_hits, primary_total=len(primaries),
+        active=active,
+    )
 
 
-class ETHLeading(_State):
-    label = "ETH Leading"
-    type  = "long"
-    emoji = "🔵"
+def _eval_alts_long(m: Metrics, thr: dict, c: ConfirmationData) -> SignalScore:
+    p1 = m.btc_chg    > -thr["btc"]
+    p2 = m.btcd_chg   < -thr["btcd"]
+    p3 = m.total2_chg > thr["total2"]
+    primaries = [p1, p2, p3]
+    primary_hits = sum(primaries)
 
-    @classmethod
-    def check(cls, m: Metrics, thr: dict) -> bool:
-        return m.btcd_chg < -thr["btcd"] and m.ethbtc_chg > thr["ethbtc"]
+    cf1 = _volume_above_avg(c.alt_volume_ratio)
+    cf2 = _funding_neutral_or_negative(c.funding_rate)
+    cf3 = _fg_neutral_to_greed(c.fear_greed_value)
+    cf4 = _stable_d_falling(c.stable_d_change)
+    confirmations = [cf1, cf2, cf3, cf4]
+    conf_hits = sum(confirmations)
 
-    @classmethod
-    def score(cls, m: Metrics, thr: dict) -> float:
-        return (abs(m.btcd_chg) / thr["btcd"] + m.ethbtc_chg / thr["ethbtc"]) / 2
+    hits  = primary_hits + conf_hits
+    total = len(primaries) + len(confirmations)
+    score = hits / total
+    active = all(primaries) and conf_hits >= 1
 
-
-class LateAlts(_State):
-    label = "Late Alts"
-    type  = "caution"
-    emoji = "🟡"
-
-    @classmethod
-    def check(cls, m: Metrics, thr: dict) -> bool:
-        return m.btcd_level < LATE_ALTS_BTCD_LEVEL and m.total2_chg > thr["total2"]
-
-    @classmethod
-    def score(cls, m: Metrics, thr: dict) -> float:
-        # Score based on how far below the threshold BTC.D is + TOTAL2 strength
-        btcd_distance = (LATE_ALTS_BTCD_LEVEL - m.btcd_level) / LATE_ALTS_BTCD_LEVEL * 100
-        return (btcd_distance + m.total2_chg / thr["total2"]) / 2
+    return SignalScore(
+        label="Alts Long", type="long", emoji="🟢",
+        hits=hits, total=total, score=round(score, 3),
+        confidence=_confidence_label(score) if active else "None",
+        primary_hits=primary_hits, primary_total=len(primaries),
+        active=active,
+    )
 
 
-class AltsShort(_State):
-    label = "Alts Short"
-    type  = "short"
-    emoji = "🔴"
+def _eval_eth_leading(m: Metrics, thr: dict, c: ConfirmationData) -> SignalScore:
+    p1 = m.btcd_chg   < -thr["btcd"]
+    p2 = m.ethbtc_chg > thr["ethbtc"]
+    primaries = [p1, p2]
+    primary_hits = sum(primaries)
 
-    @classmethod
-    def check(cls, m: Metrics, thr: dict) -> bool:
-        return m.btc_chg < -thr["btc"] and m.btcd_chg > thr["btcd"]
+    cf1 = _funding_neutral_or_negative(c.funding_rate)
+    cf2 = _fg_mid_greed(c.fear_greed_value)
+    cf3 = _stable_d_falling(c.stable_d_change)
+    confirmations = [cf1, cf2, cf3]
+    conf_hits = sum(confirmations)
 
-    @classmethod
-    def score(cls, m: Metrics, thr: dict) -> float:
-        return (abs(m.btc_chg) / thr["btc"] + m.btcd_chg / thr["btcd"]) / 2
+    hits  = primary_hits + conf_hits
+    total = len(primaries) + len(confirmations)
+    score = hits / total
+    active = all(primaries) and conf_hits >= 1
 
-
-class RiskOff(_State):
-    label = "Risk Off"
-    type  = "risk_off"
-    emoji = "⚫"
-
-    @classmethod
-    def check(cls, m: Metrics, thr: dict) -> bool:
-        # Everything falls together — including BTC.D (capital exits crypto entirely)
-        return (m.btc_chg < -thr["btc"]
-                and m.total2_chg < -thr["total2"]
-                and m.btcd_chg < thr["btcd"])   # BTC.D not rising = no BTC refuge
-
-    @classmethod
-    def score(cls, m: Metrics, thr: dict) -> float:
-        return (abs(m.btc_chg) / thr["btc"] + abs(m.total2_chg) / thr["total2"]) / 2
+    return SignalScore(
+        label="ETH Leading", type="long", emoji="🔵",
+        hits=hits, total=total, score=round(score, 3),
+        confidence=_confidence_label(score) if active else "None",
+        primary_hits=primary_hits, primary_total=len(primaries),
+        active=active,
+    )
 
 
-class Neutral(_State):
-    label = "Neutral"
-    type  = "neutral"
-    emoji = "⚪"
+def _eval_late_alts(m: Metrics, thr: dict, c: ConfirmationData) -> SignalScore:
+    p1 = m.btcd_level  < LATE_ALTS_BTCD_LEVEL
+    p2 = m.total2_chg  > thr["total2"]
+    primaries = [p1, p2]
+    primary_hits = sum(primaries)
 
-    @classmethod
-    def check(cls, m: Metrics, thr: dict) -> bool:
-        return True   # always active as default
+    cf1 = _volume_above_avg(c.total_volume_ratio)
+    cf2 = _funding_high_positive(c.funding_rate)
+    cf3 = _fg_extreme_greed(c.fear_greed_value)
+    cf4 = _stable_d_falling(c.stable_d_change)
+    confirmations = [cf1, cf2, cf3, cf4]
+    conf_hits = sum(confirmations)
 
-    @classmethod
-    def score(cls, m: Metrics, thr: dict) -> float:
-        return 0.0
+    hits  = primary_hits + conf_hits
+    total = len(primaries) + len(confirmations)
+    score = hits / total
+    active = all(primaries) and conf_hits >= 1
+
+    return SignalScore(
+        label="Late Alts", type="caution", emoji="🟡",
+        hits=hits, total=total, score=round(score, 3),
+        confidence=_confidence_label(score) if active else "None",
+        primary_hits=primary_hits, primary_total=len(primaries),
+        active=active,
+    )
 
 
-# All states ordered — Neutral is always last (default fallback)
-ALL_STATES = [BTCLong, AltsLong, ETHLeading, LateAlts, AltsShort, RiskOff, Neutral]
+def _eval_alts_short(m: Metrics, thr: dict, c: ConfirmationData) -> SignalScore:
+    p1 = m.btc_chg  < -thr["btc"]
+    p2 = m.btcd_chg > thr["btcd"]
+    primaries = [p1, p2]
+    primary_hits = sum(primaries)
+
+    cf1 = _volume_falling(c.alt_volume_ratio)
+    cf2 = _funding_neutral_or_negative(c.funding_rate)
+    cf3 = _fg_fear(c.fear_greed_value)
+    cf4 = _stable_d_rising(c.stable_d_change)
+    confirmations = [cf1, cf2, cf3, cf4]
+    conf_hits = sum(confirmations)
+
+    hits  = primary_hits + conf_hits
+    total = len(primaries) + len(confirmations)
+    score = hits / total
+    active = all(primaries) and conf_hits >= 1
+
+    return SignalScore(
+        label="Alts Short", type="short", emoji="🔴",
+        hits=hits, total=total, score=round(score, 3),
+        confidence=_confidence_label(score) if active else "None",
+        primary_hits=primary_hits, primary_total=len(primaries),
+        active=active,
+    )
+
+
+def _eval_risk_off(m: Metrics, thr: dict, c: ConfirmationData) -> SignalScore:
+    p1 = m.btc_chg    < -thr["btc"]
+    p2 = m.btcd_chg   < thr["btcd"]    # NOT rising
+    p3 = m.total2_chg < -thr["total2"]
+    primaries = [p1, p2, p3]
+    primary_hits = sum(primaries)
+
+    cf1 = _volume_falling(c.total_volume_ratio)
+    cf2 = _funding_deeply_negative(c.funding_rate)
+    cf3 = _fg_extreme_fear(c.fear_greed_value)
+    cf4 = _stable_d_sharply_rising(c.stable_d_change)
+    confirmations = [cf1, cf2, cf3, cf4]
+    conf_hits = sum(confirmations)
+
+    hits  = primary_hits + conf_hits
+    total = len(primaries) + len(confirmations)
+    score = hits / total
+    active = all(primaries) and conf_hits >= 1
+
+    return SignalScore(
+        label="Risk Off", type="risk_off", emoji="⚫",
+        hits=hits, total=total, score=round(score, 3),
+        confidence=_confidence_label(score) if active else "None",
+        primary_hits=primary_hits, primary_total=len(primaries),
+        active=active,
+    )
+
+
+ALL_EVALUATORS = [
+    _eval_btc_long,
+    _eval_alts_long,
+    _eval_eth_leading,
+    _eval_late_alts,
+    _eval_alts_short,
+    _eval_risk_off,
+]
+
+
+# ----------------------------------------------------------
+# Build confirmation data from state
+# ----------------------------------------------------------
+def build_confirmation_data(state: dict) -> ConfirmationData:
+    from feeds.binance import get_volume_data, get_funding_data
+
+    vol     = state.get("volume", get_volume_data())
+    fund    = state.get("funding", get_funding_data())
+    fg      = state.get("fear_greed", get_fear_greed())
+    vol_avg = state.get("volume_avg", {})
+
+    # Volume ratios
+    btc_ratio   = None
+    alt_ratio   = None
+    total_ratio = None
+
+    btc_avg   = vol_avg.get("btc_24h")
+    alt_avg   = vol_avg.get("alt_24h")
+    total_avg = vol_avg.get("total_24h")
+
+    if btc_avg and btc_avg > 0 and not vol.get("stale"):
+        btc_ratio = vol["btc_24h"] / btc_avg
+    if alt_avg and alt_avg > 0 and not vol.get("stale"):
+        alt_ratio = vol["alt_24h"] / alt_avg
+    if total_avg and total_avg > 0 and not vol.get("stale"):
+        total_ratio = vol["total_24h"] / total_avg
+
+    funding_rate = fund.get("rate") if not fund.get("stale") else None
+    fg_value     = fg.get("value")  if not fg.get("stale")   else None
+    stable_chg   = get_stable_d_change()
+
+    return ConfirmationData(
+        btc_volume_ratio=btc_ratio,
+        alt_volume_ratio=alt_ratio,
+        total_volume_ratio=total_ratio,
+        funding_rate=funding_rate,
+        fear_greed_value=fg_value,
+        stable_d_change=stable_chg,
+        volume_stale=vol.get("stale", True),
+        funding_stale=fund.get("stale", True),
+        fear_greed_stale=fg.get("stale", True),
+    )
 
 
 # ----------------------------------------------------------
@@ -203,34 +429,49 @@ def build_metrics(tf: str, state: dict) -> Metrics | None:
     )
 
 
-def get_market_state(m: Metrics, tf: str) -> StateResult:
-    """
-    Evaluates all states, collects those whose conditions are met,
-    and returns the one with the highest composite score.
-    Neutral is always included as a fallback with score 0.
-    """
+def get_market_state(m: Metrics, tf: str, state: dict = None) -> StateResult:
     thr = THRESHOLDS[tf]
-    candidates = []
+    c   = build_confirmation_data(state or {})
 
-    for state_cls in ALL_STATES:
-        if state_cls.check(m, thr):
-            s = state_cls.score(m, thr)
-            candidates.append((s, state_cls))
+    all_scores = [ev(m, thr, c) for ev in ALL_EVALUATORS]
+    active     = [s for s in all_scores if s.active]
 
-    # Pick the highest scoring candidate
-    candidates.sort(key=lambda x: x[0], reverse=True)
-    score, winner = candidates[0]
+    if not active:
+        # Neutral
+        return StateResult(
+            label="Neutral", type="neutral", score=0.0, emoji="⚪",
+            hits=0, total=0, confidence="None",
+            primary_hits=0, primary_total=0,
+            all_scores=all_scores,
+        )
+
+    # Conflict resolution: score → primary_hits → priority
+    def sort_key(s: SignalScore):
+        priority = SIGNAL_PRIORITY.get(s.label, 99)
+        return (-s.score, -s.primary_hits, priority)
+
+    active.sort(key=sort_key)
+    winner = active[0]
+
+    # Legacy score for backward compat (heatmap, history)
+    legacy_score = winner.score * winner.total / 2
 
     return StateResult(
-        label  = winner.label,
-        type   = winner.type,
-        score  = round(score, 4),
-        emoji  = winner.emoji,
+        label         = winner.label,
+        type          = winner.type,
+        score         = round(legacy_score, 4),
+        emoji         = winner.emoji,
+        hits          = winner.hits,
+        total         = winner.total,
+        confidence    = winner.confidence,
+        primary_hits  = winner.primary_hits,
+        primary_total = winner.primary_total,
+        all_scores    = all_scores,
     )
 
 
 # ----------------------------------------------------------
-# Per-coin scoring (for top movers section)
+# Per-coin scoring
 # ----------------------------------------------------------
 def score_coins(tf: str, state: dict) -> list[CoinScore]:
     top100     = state.get("top100", [])
@@ -269,12 +510,9 @@ def score_coins(tf: str, state: dict) -> list[CoinScore]:
             score += abs(altbtc_chg) * 0.5
 
         scored.append(CoinScore(
-            symbol        = f"{sym}USDT",
-            rank          = coin["rank"],
-            altbtc_chg    = altbtc_chg,
-            vs_total2     = vs_total2,
-            score         = score,
-            hidden_signal = hidden,
+            symbol=f"{sym}USDT", rank=coin["rank"],
+            altbtc_chg=altbtc_chg, vs_total2=vs_total2,
+            score=score, hidden_signal=hidden,
         ))
 
     return scored

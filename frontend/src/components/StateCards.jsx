@@ -1,27 +1,12 @@
 import { useStore } from '../store'
 import { typeColor, typeClass, TFS, TF_LABELS, timeAgo } from '../utils'
-import { useLatestStates } from '../hooks/useData'
+import { useLatestStates, useConfirmations } from '../hooks/useData'
 
-// ============================================================
-// % change since signal — shows how much the primary asset
-// has moved since the signal was triggered
-//
-// BTC Long     → % change of BTC price since signal
-// Alts Long    → % change of TOTAL2 since signal
-// ETH Leading  → % change of ETH price since signal
-// Late Alts    → % change of TOTAL2 since signal
-// Alts Short   → % change of TOTAL2 since signal (inverted)
-// Risk Off     → % change of BTC price since signal
-// ============================================================
+// % since signal
 function calcSinceSignal(stateType, stateLabel, latestState, currentPrices, currentGlobal) {
   if (!stateType || stateType === 'neutral' || !latestState) return null
-
   const label = (stateLabel || '').toLowerCase()
-
-  // Determine which asset to track and its signal-time price
-  let signalPrice = 0
-  let currentPrice = 0
-  let assetName = ''
+  let signalPrice = 0, currentPrice = 0, assetName = ''
 
   if (label.includes('btc long') || label.includes('risk off')) {
     signalPrice  = latestState.btc_price || 0
@@ -31,42 +16,24 @@ function calcSinceSignal(stateType, stateLabel, latestState, currentPrices, curr
     signalPrice  = latestState.eth_price || 0
     currentPrice = currentPrices?.ETHUSDT || 0
     assetName    = 'ETH'
-  } else if (
-    label.includes('alts long') ||
-    label.includes('late alts') ||
-    label.includes('alts short')
-  ) {
+  } else if (label.includes('alts long') || label.includes('late alts') || label.includes('alts short')) {
     signalPrice  = latestState.total2_val || 0
     currentPrice = currentGlobal?.total2 || 0
     assetName    = 'TOTAL2'
   }
 
   if (!signalPrice || !currentPrice) return null
-
   let pct = (currentPrice - signalPrice) / signalPrice * 100
-
-  // For short signals, invert: price going down is positive (good)
-  if (label.includes('alts short') || label.includes('risk off')) {
-    pct = -pct
-  }
-
-  return { pct: round2(pct), asset: assetName }
+  if (label.includes('alts short') || label.includes('risk off')) pct = -pct
+  return { pct: Math.round(pct * 100) / 100, asset: assetName }
 }
 
-function round2(v) {
-  return Math.round(v * 100) / 100
-}
-
-// Confidence bar
-function calcConfidence(score, m) {
-  if (!m) return 0
-  const scoreNorm = Math.min(100, (score * 100) / 5)
-  const activity  = Math.min(100,
-    Math.abs(m.btc_chg    || 0) * 5  +
-    Math.abs(m.btcd_chg   || 0) * 20 +
-    Math.abs(m.total2_chg || 0) * 4
-  )
-  return Math.round(scoreNorm * 0.6 + activity * 0.4)
+// Confidence color
+function confidenceColor(level) {
+  if (level === 'High')   return '#39ff14'
+  if (level === 'Medium') return '#ffab00'
+  if (level === 'Low')    return '#ff6b35'
+  return 'rgba(200,205,216,0.4)'
 }
 
 export default function StateCards() {
@@ -75,6 +42,7 @@ export default function StateCards() {
   const prices       = useStore(s => s.prices)
   const global_      = useStore(s => s.global)
   const latestStates = useLatestStates()
+  const confirmations = useConfirmations()
 
   return (
     <section className="section">
@@ -85,19 +53,34 @@ export default function StateCards() {
           const m    = metrics[tf] || {}
           const last = latestStates[tf]
 
-          const score      = s?.score || 0
-          const confidence = s ? calcConfidence(score, m) : 0
-          const cls        = s ? typeClass(s.type) : 'neutral'
-
+          const cls   = s ? typeClass(s.type) : 'neutral'
           const since = s && last
             ? calcSinceSignal(s.type, s.label, last, prices, global_)
             : null
+
+          // Confirmation scores for this TF
+          const tfScores     = confirmations?.all_scores?.[tf] || []
+          const activeSignal = tfScores.find(sc => sc.active)
+          const hits         = activeSignal?.hits  || s?.hits  || 0
+          const total        = activeSignal?.total || s?.total || 0
+          const confidence   = activeSignal?.confidence || s?.confidence || 'None'
+          const confColor    = confidenceColor(confidence)
+
+          // Legacy strength bar (activity-based)
+          const score       = s?.score || 0
+          const scoreNorm   = Math.min(100, (score * 100) / 5)
+          const activity    = Math.min(100,
+            Math.abs(m.btc_chg    || 0) * 5  +
+            Math.abs(m.btcd_chg   || 0) * 20 +
+            Math.abs(m.total2_chg || 0) * 4
+          )
+          const strength = Math.round(scoreNorm * 0.6 + activity * 0.4)
 
           return (
             <div key={tf} className={`state-card card ${cls}`}>
               <div className="state-glow" />
 
-              {/* Header: TF label + time ago */}
+              {/* Header */}
               <div className="state-card-header">
                 <div className="state-tf">{TF_LABELS[tf]}</div>
                 {last?.recorded_at && (
@@ -120,21 +103,37 @@ export default function StateCards() {
                 </div>
               )}
 
-              {/* Confidence bar */}
+              {/* Bar 1: Signal strength (activity-based) */}
               <div className="strength-bar">
                 <div className="strength-track">
                   <div
                     className="strength-fill"
                     style={{
-                      width: `${confidence}%`,
+                      width: `${strength}%`,
                       background: s ? typeColor(s.type) : 'var(--muted)'
                     }}
                   />
                 </div>
-                <div className="strength-label">
-                  {confidence}% strength
-                </div>
+                <div className="strength-label">{strength}% strength</div>
               </div>
+
+              {/* Bar 2: Confidence (hits/total) */}
+              {s && s.type !== 'neutral' && (
+                <div className="strength-bar" style={{ marginTop: '6px' }}>
+                  <div className="strength-track">
+                    <div
+                      className="strength-fill"
+                      style={{
+                        width: total > 0 ? `${(hits / total) * 100}%` : '0%',
+                        background: confColor,
+                      }}
+                    />
+                  </div>
+                  <div className="strength-label" style={{ color: confColor }}>
+                    {total > 0 ? `${hits}/${total}` : '—'} · {confidence !== 'None' ? confidence : 'No signal'}
+                  </div>
+                </div>
+              )}
             </div>
           )
         })}

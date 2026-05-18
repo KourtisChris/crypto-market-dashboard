@@ -4,7 +4,6 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../store'
 
-// const BASE = import.meta.env.DEV ? 'http://localhost:8081' : ''
 const BASE = import.meta.env.DEV
   ? 'http://localhost:8081'
   : 'https://crypto-market-dashboard-m5jz.onrender.com'
@@ -35,7 +34,12 @@ export async function fetchLatestStates() {
   return r.json()
 }
 
-// Hook: load history when tf changes
+export async function fetchConfirmations() {
+  const r = await fetch(`${BASE}/api/confirmations`)
+  if (!r.ok) return null
+  return r.json()
+}
+
 export function useHistory(tf) {
   const history    = useStore(s => s.history[tf])
   const setHistory = useStore(s => s.setHistory)
@@ -47,23 +51,19 @@ export function useHistory(tf) {
   return history
 }
 
-// Hook: load heatmap when tf changes
 export function useHeatmap(tf) {
   const heatmap    = useStore(s => s.heatmap[tf])
   const setHeatmap = useStore(s => s.setHeatmap)
-
   useEffect(() => {
     fetchHeatmap(tf).then(rows => setHeatmap(tf, rows))
     const id = setInterval(() => {
       fetchHeatmap(tf).then(rows => setHeatmap(tf, rows))
-    }, 60000) // ανανέωση κάθε 1 λεπτό
+    }, 60000)
     return () => clearInterval(id)
   }, [tf])
-
   return heatmap
 }
 
-// Hook: latest state timestamps per TF (refreshes every 60s)
 export function useLatestStates() {
   const [latestStates, setLatestStates] = useState({})
   useEffect(() => {
@@ -72,4 +72,16 @@ export function useLatestStates() {
     return () => clearInterval(id)
   }, [])
   return latestStates
+}
+
+// Hook: fetch confirmations every 60s
+export function useConfirmations() {
+  const confirmations    = useStore(s => s.confirmations)
+  const setConfirmations = useStore(s => s.setConfirmations)
+  useEffect(() => {
+    fetchConfirmations().then(setConfirmations)
+    const id = setInterval(() => fetchConfirmations().then(setConfirmations), 60000)
+    return () => clearInterval(id)
+  }, [])
+  return confirmations
 }

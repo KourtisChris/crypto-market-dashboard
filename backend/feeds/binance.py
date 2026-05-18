@@ -1,6 +1,7 @@
 # ============================================================
 # backend/feeds/binance.py
 # Real-time prices via WebSocket + candle opens via REST
+# + 24h volume + funding rate
 # ============================================================
 
 import asyncio
@@ -9,7 +10,10 @@ import logging
 import time
 import aiohttp
 import websockets
-from config import BINANCE_WS_BASE, BINANCE_REST_BASE, TIMEFRAMES
+from config import (
+    BINANCE_WS_BASE, BINANCE_REST_BASE, BINANCE_FUTURES_BASE,
+    TIMEFRAMES, VOLUME_FUNDING_REFRESH_S,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +22,20 @@ _opens:    dict[str, float] = {}
 _opens_ts: dict[str, float] = {}
 
 CANDLE_TTL = {"1M": 60, "1H": 3600, "1D": 86400, "1W": 604800}
+
+# volume & funding rate cache
+_volume_data: dict = {
+    "btc_24h":   0.0,
+    "alt_24h":   0.0,
+    "total_24h": 0.0,
+    "timestamp": 0.0,
+    "stale":     True,
+}
+_funding_data: dict = {
+    "rate":      None,
+    "timestamp": 0.0,
+    "stale":     True,
+}
 
 
 class BinanceFeed:
@@ -28,13 +46,13 @@ class BinanceFeed:
         await asyncio.gather(
             self._ws_loop(),
             self._candle_refresh_loop(),
+            self._volume_funding_loop(),
         )
 
     # ----------------------------------------------------------
     # WebSocket — real-time prices
     # ----------------------------------------------------------
     async def _ws_loop(self):
-        # Wait for top100 to load first
         for _ in range(30):
             if self.state.get("top100"):
                 break
@@ -80,7 +98,7 @@ class BinanceFeed:
         while True:
             symbols = self._all_symbols()
             await self._refresh(symbols)
-            await asyncio.sleep(60)   # check every minute (needed for 1M TF)
+            await asyncio.sleep(60)
 
     def _all_symbols(self) -> set[str]:
         syms = {"BTCUSDT", "ETHUSDT", "ETHBTC"}
@@ -118,17 +136,103 @@ class BinanceFeed:
                     data = await resp.json()
                     if data:
                         key = f"{symbol}_{tf}"
-                        _opens[key]    = float(data[0][1])   # index 1 = open price
+                        _opens[key]    = float(data[0][1])
                         _opens_ts[key] = time.time()
         except Exception as e:
             logger.debug(f"[Binance REST] {symbol} {tf}: {e}")
+
+    # ----------------------------------------------------------
+    # Volume + Funding Rate — refreshed every 60s
+    # ----------------------------------------------------------
+    async def _volume_funding_loop(self):
+        while True:
+            try:
+                await asyncio.gather(
+                    self._fetch_volume(),
+                    self._fetch_funding_rate(),
+                )
+            except Exception as e:
+                logger.error(f"[Binance] Volume/Funding error: {e}")
+            await asyncio.sleep(VOLUME_FUNDING_REFRESH_S)
+
+    async def _fetch_volume(self):
+        """Fetch 24h volume for BTC and top alts from Binance ticker."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{BINANCE_REST_BASE}/ticker/24hr"
+                ) as resp:
+                    if resp.status != 200:
+                        _volume_data["stale"] = True
+                        return
+                    tickers = await resp.json()
+
+            btc_vol   = 0.0
+            alt_vol   = 0.0
+            total_vol = 0.0
+
+            # Get top100 symbols for alt volume calculation
+            top100_syms = {
+                c["symbol"] for c in self.state.get("top100", [])
+                if c["symbol"] not in ("BTC", "ETH")
+            }
+
+            for t in tickers:
+                sym    = t.get("symbol", "")
+                vol_usd = float(t.get("quoteVolume", 0))
+
+                if sym == "BTCUSDT":
+                    btc_vol = vol_usd
+                elif sym.endswith("USDT"):
+                    base = sym[:-4]
+                    total_vol += vol_usd
+                    if base in top100_syms:
+                        alt_vol += vol_usd
+
+            _volume_data["btc_24h"]   = btc_vol
+            _volume_data["alt_24h"]   = alt_vol
+            _volume_data["total_24h"] = total_vol
+            _volume_data["timestamp"] = time.time()
+            _volume_data["stale"]     = False
+
+            # Store in state for engine access
+            self.state["volume"] = dict(_volume_data)
+            logger.debug(f"[Binance] Volume — BTC: ${btc_vol/1e9:.1f}B Alt: ${alt_vol/1e9:.1f}B")
+
+        except Exception as e:
+            _volume_data["stale"] = True
+            logger.error(f"[Binance] Volume fetch error: {e}")
+
+    async def _fetch_funding_rate(self):
+        """Fetch latest funding rate for BTCUSDT from Binance Futures."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{BINANCE_FUTURES_BASE}/fapi/v1/fundingRate",
+                    params={"symbol": "BTCUSDT", "limit": 1}
+                ) as resp:
+                    if resp.status != 200:
+                        _funding_data["stale"] = True
+                        return
+                    data = await resp.json()
+
+            if data:
+                rate = float(data[0].get("fundingRate", 0))
+                _funding_data["rate"]      = rate
+                _funding_data["timestamp"] = time.time()
+                _funding_data["stale"]     = False
+                self.state["funding"] = dict(_funding_data)
+                logger.debug(f"[Binance] Funding rate: {rate:.4%}")
+
+        except Exception as e:
+            _funding_data["stale"] = True
+            logger.error(f"[Binance] Funding rate error: {e}")
 
 
 # ----------------------------------------------------------
 # Public helpers — used by signals engine
 # ----------------------------------------------------------
 def get_pct_change(symbol: str, tf: str, prices: dict) -> float | None:
-    """% change of a symbol from candle open to current price."""
     open_p = _opens.get(f"{symbol}_{tf}")
     close  = prices.get(symbol)
     if not open_p or not close or open_p == 0:
@@ -137,10 +241,6 @@ def get_pct_change(symbol: str, tf: str, prices: dict) -> float | None:
 
 
 def get_altbtc_pct(alt_symbol: str, tf: str, prices: dict) -> float | None:
-    """
-    ALT/BTC % change for rank 51-100 coins (no direct BTC pair).
-    Calculated as: (ALT/BTC ratio now) vs (ALT/BTC ratio at candle open).
-    """
     alt_usdt = prices.get(f"{alt_symbol}USDT")
     btc_usdt = prices.get("BTCUSDT")
     if not alt_usdt or not btc_usdt or btc_usdt == 0:
@@ -154,3 +254,11 @@ def get_altbtc_pct(alt_symbol: str, tf: str, prices: dict) -> float | None:
     if ratio_open == 0:
         return None
     return (ratio_now - ratio_open) / ratio_open * 100
+
+
+def get_volume_data() -> dict:
+    return _volume_data
+
+
+def get_funding_data() -> dict:
+    return _funding_data
