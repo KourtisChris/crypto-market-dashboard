@@ -44,6 +44,8 @@ def update_global_opens(btcd: float, total2: float, total3: float,
                          others_d: float, total: float):
     """Called every 5 min. Updates open only when candle changes."""
     for tf in TIMEFRAMES:
+        if tf == "1M":
+            continue  # 1M open set only at startup via _load_opens
         ts = _candle_start_ts(tf)
         for key, val in [("btcd", btcd), ("total2", total2), ("total3", total3),
                          ("others_d", others_d), ("total", total)]:

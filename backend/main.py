@@ -230,8 +230,8 @@ async def _send_welcome(chat_id: str):
         "👋 <b>Welcome to Market State Alerts!</b>\n\n"
         "You will now receive alerts whenever the crypto market state changes.\n\n"
         "<b>States tracked:</b>\n"
-        "🟢 Alts Long · 🔴 Alts Short · 🟠 BTC Long\n"
-        "🔵 ETH Leading · 🟡 Late Alts · ⚫ Risk Off · ⚪ Neutral\n\n"
+        "🟢 Alts Long\n · 🔴 Alts Short\n · 🟠 BTC Long\n"
+        "🔵 ETH Leading\n · 🟡 Late Alts\n · ⚫ Risk Off\n · ⚪ Neutral\n\n"
         f'📊 <a href="{DASHBOARD_URL}">Open Dashboard</a>\n'
         f'📖 <a href="{ALERT_GUIDE_URL}">Alert Guide</a>\n\n'
         "<i>Send /stop to unsubscribe.</i>"
