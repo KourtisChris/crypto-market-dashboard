@@ -39,7 +39,7 @@ TIMEFRAMES = {
 # Values are the minimum % move required to activate a state
 
 # #TEST THRESHOLDS - more noise for testing
-THRESHOLD_MULTIPLIER = 0.5
+THRESHOLD_MULTIPLIER = 1.2
 THRESHOLDS = {
     "1M": {
         "btc":    0.04 * THRESHOLD_MULTIPLIER,
