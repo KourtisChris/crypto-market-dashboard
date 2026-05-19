@@ -31,6 +31,8 @@ TELEGRAM_BOT_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 DASHBOARD_URL    = "https://crypto-dashboard-frontend-fo5q.onrender.com"
 ALERT_GUIDE_URL  = "https://example.com/alert-guide.pdf"
 
+TF_LABELS = {"1M": "1 Minute", "1H": "1 Hour", "1D": "1 Day", "1W": "1 Week"}
+
 app = FastAPI(title="Crypto Market Dashboard", version="3.0.0")
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -87,24 +89,21 @@ prev_states: dict[str, str] = {tf: "" for tf in TIMEFRAMES}
 
 
 # ----------------------------------------------------------
-# Volume average — load from DB + refresh periodically
+# Volume average loops
 # ----------------------------------------------------------
 async def volume_avg_loop():
-    """Loads volume averages from DB and updates every 1h."""
     while True:
         try:
             avg = await database.get_volume_averages()
             if avg:
                 state["volume_avg"] = avg
-                logger.debug(f"[VolumeAvg] Updated from DB")
         except Exception as e:
             logger.error(f"[VolumeAvg] {e}")
-        await asyncio.sleep(3600)  # refresh every 1h
+        await asyncio.sleep(3600)
 
 
 async def volume_record_loop():
-    """Records current volume to DB every 1h for rolling average."""
-    await asyncio.sleep(300)  # wait 5min for data to stabilize
+    await asyncio.sleep(300)
     while True:
         try:
             vol = state.get("volume", {})
@@ -114,14 +113,13 @@ async def volume_record_loop():
                     vol.get("alt_24h", 0),
                     vol.get("total_24h", 0),
                 )
-                logger.debug("[VolumeRecord] Recorded volume snapshot")
         except Exception as e:
             logger.error(f"[VolumeRecord] {e}")
-        await asyncio.sleep(3600)  # record once per hour
+        await asyncio.sleep(3600)
 
 
 # ----------------------------------------------------------
-# Telegram
+# Telegram — alerts
 # ----------------------------------------------------------
 def _format_alert(state_label, state_type, tf, strong_coins, weak_coins):
     emoji_map = {
@@ -129,7 +127,6 @@ def _format_alert(state_label, state_type, tf, strong_coins, weak_coins):
         "risk_off": "⚫", "neutral": "⚪",
     }
     emoji    = emoji_map.get(state_type, "📊")
-    TF_LABELS = {"1M": "1 Minute", "1H": "1 Hour", "1D": "1 Day", "1W": "1 Week"}
     tf_label = TF_LABELS.get(tf, tf)
     lines    = [f"{emoji} <b>{state_label}</b>", "", f"Timeframe: {tf_label}"]
 
@@ -155,10 +152,11 @@ def _format_alert(state_label, state_type, tf, strong_coins, weak_coins):
     return "\n".join(lines)
 
 
-async def _send_telegram_alert(text: str):
+async def _send_telegram_alert(text: str, tf: str):
+    """Sends alert only to subscribers who have this TF enabled."""
     if not TELEGRAM_TOKEN:
         return
-    subscribers = await database.get_telegram_subscribers()
+    subscribers = await database.get_subscribers_for_tf(tf)
     if not subscribers:
         return
     url  = f"{TELEGRAM_BOT_URL}/sendMessage"
@@ -180,6 +178,96 @@ async def _send_telegram_alert(text: str):
         await database.remove_telegram_subscriber(chat_id)
 
 
+async def _send_message(chat_id, text, reply_markup=None):
+    if not TELEGRAM_TOKEN:
+        return
+    payload = {
+        "chat_id":                  chat_id,
+        "text":                     text,
+        "parse_mode":               "HTML",
+        "disable_web_page_preview": True,
+    }
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    async with aiohttp.ClientSession() as session:
+        await session.post(f"{TELEGRAM_BOT_URL}/sendMessage", json=payload)
+
+
+async def _edit_message(chat_id, message_id, text, reply_markup=None):
+    if not TELEGRAM_TOKEN:
+        return
+    payload = {
+        "chat_id":    chat_id,
+        "message_id": message_id,
+        "text":       text,
+        "parse_mode": "HTML",
+    }
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    async with aiohttp.ClientSession() as session:
+        await session.post(f"{TELEGRAM_BOT_URL}/editMessageText", json=payload)
+
+
+async def _answer_callback(callback_query_id: str):
+    if not TELEGRAM_TOKEN:
+        return
+    async with aiohttp.ClientSession() as session:
+        await session.post(f"{TELEGRAM_BOT_URL}/answerCallbackQuery", json={
+            "callback_query_id": callback_query_id
+        })
+
+
+def _settings_keyboard(settings: dict) -> dict:
+    """Builds inline keyboard for TF settings."""
+    def btn(tf):
+        enabled = settings.get(tf, True)
+        icon    = "✅" if enabled else "❌"
+        label   = TF_LABELS[tf].replace("1 ", "")  # "Minute", "Hour", etc
+        return {"text": f"{icon} {label}", "callback_data": f"toggle_{tf}"}
+
+    return {
+        "inline_keyboard": [
+            [btn("1M"), btn("1H")],
+            [btn("1D"), btn("1W")],
+            [{"text": "✔️ Done", "callback_data": "settings_done"}],
+        ]
+    }
+
+
+async def _send_welcome(chat_id):
+    text = (
+        "👋 <b>Welcome to Market State Alerts!</b>\n\n"
+        "You will now receive alerts whenever the crypto market state changes.\n\n"
+        "<b>States tracked:</b>\n"
+        "🟢 Alts Long · 🔴 Alts Short · 🟠 BTC Long\n"
+        "🔵 ETH Leading · 🟡 Late Alts · ⚫ Risk Off · ⚪ Neutral\n\n"
+        f'📊 <a href="{DASHBOARD_URL}">Open Dashboard</a>\n'
+        f'📖 <a href="{ALERT_GUIDE_URL}">Alert Guide</a>\n\n'
+        "<i>Send /stop to unsubscribe.</i>"
+    )
+    reply_markup = {
+        "inline_keyboard": [[
+            {"text": "⚙️ Settings", "callback_data": "open_settings"}
+        ]]
+    }
+    await _send_message(chat_id, text, reply_markup)
+
+
+async def _handle_settings(chat_id, message_id=None):
+    """Shows TF settings keyboard."""
+    settings = await database.get_subscriber_tf_settings(chat_id)
+    text     = "⚙️ <b>Alert Settings</b>\n\nChoose which timeframes to receive alerts for:"
+    keyboard = _settings_keyboard(settings)
+
+    if message_id:
+        await _edit_message(chat_id, message_id, text, keyboard)
+    else:
+        await _send_message(chat_id, text, keyboard)
+
+
+# ----------------------------------------------------------
+# Telegram — bot polling
+# ----------------------------------------------------------
 async def telegram_poll():
     if not TELEGRAM_TOKEN:
         logger.warning("[Telegram] No token — polling disabled")
@@ -188,53 +276,73 @@ async def telegram_poll():
     logger.info("[Telegram] Bot polling started")
     while True:
         try:
-            params = {"timeout": 0, "allowed_updates": ["message"]}
+            params = {"timeout": 0, "allowed_updates": ["message", "callback_query"]}
             if offset is not None:
                 params["offset"] = offset
             async with aiohttp.ClientSession() as session:
-                async with session.get(f"{TELEGRAM_BOT_URL}/getUpdates", params=params) as resp:
+                async with session.get(
+                    f"{TELEGRAM_BOT_URL}/getUpdates", params=params
+                ) as resp:
                     if resp.status != 200:
                         await asyncio.sleep(5)
                         continue
                     data = await resp.json()
+
             for update in data.get("result", []):
-                offset  = update["update_id"] + 1
-                msg     = update.get("message", {})
-                text    = msg.get("text", "").strip()
-                chat_id = str(msg.get("chat", {}).get("id", ""))
-                if not chat_id:
-                    continue
-                if text == "/start":
-                    await database.add_telegram_subscriber(chat_id)
-                    await _send_welcome(chat_id)
-                elif text == "/stop":
-                    await database.remove_telegram_subscriber(chat_id)
-                    await _send_message(chat_id,
-                        "📴 <b>Unsubscribed</b>\n\nSend /start to resubscribe.")
+                offset = update["update_id"] + 1
+
+                # Handle regular messages
+                msg = update.get("message", {})
+                if msg:
+                    text    = msg.get("text", "").strip()
+                    chat_id = str(msg.get("chat", {}).get("id", ""))
+                    if not chat_id:
+                        continue
+                    if text == "/start":
+                        await database.add_telegram_subscriber(chat_id)
+                        await _send_welcome(chat_id)
+                        logger.info(f"[Telegram] /start from {chat_id}")
+                    elif text == "/stop":
+                        await database.remove_telegram_subscriber(chat_id)
+                        await _send_message(chat_id,
+                            "📴 <b>Unsubscribed</b>\n\nSend /start to resubscribe.")
+                        logger.info(f"[Telegram] /stop from {chat_id}")
+                    elif text == "/settings":
+                        await _handle_settings(chat_id)
+
+                # Handle inline button callbacks
+                cb = update.get("callback_query", {})
+                if cb:
+                    cb_id      = cb.get("id")
+                    cb_data    = cb.get("data", "")
+                    cb_msg     = cb.get("message", {})
+                    chat_id    = str(cb.get("from", {}).get("id", ""))
+                    message_id = cb_msg.get("message_id")
+
+                    await _answer_callback(cb_id)
+
+                    if cb_data == "open_settings":
+                        await _handle_settings(chat_id, message_id)
+
+                    elif cb_data.startswith("toggle_"):
+                        tf       = cb_data.replace("toggle_", "")  # e.g. "1H"
+                        settings = await database.get_subscriber_tf_settings(chat_id)
+                        settings[tf] = not settings.get(tf, True)
+                        await database.update_subscriber_tf_settings(chat_id, settings)
+                        await _handle_settings(chat_id, message_id)
+                        logger.info(f"[Telegram] {chat_id} toggled {tf} → {settings[tf]}")
+
+                    elif cb_data == "settings_done":
+                        settings = await database.get_subscriber_tf_settings(chat_id)
+                        enabled  = [tf for tf, v in settings.items() if v]
+                        await _edit_message(
+                            chat_id, message_id,
+                            f"✅ <b>Settings saved!</b>\n\nAlerts enabled for: <b>{', '.join(enabled) or 'None'}</b>",
+                        )
+
         except Exception as e:
             logger.error(f"[Telegram] Poll error: {e}")
         await asyncio.sleep(2)
-
-
-async def _send_welcome(chat_id):
-    text = (
-        "👋 <b>Welcome to Market State Alerts!</b>\n\n"
-        "You will now receive alerts whenever the crypto market state changes.\n\n"
-        f'📊 <a href="{DASHBOARD_URL}">Open Dashboard</a>\n'
-        f'📖 <a href="{ALERT_GUIDE_URL}">Alert Guide</a>\n\n'
-        "<i>Send /stop to unsubscribe.</i>"
-    )
-    await _send_message(chat_id, text)
-
-
-async def _send_message(chat_id, text):
-    if not TELEGRAM_TOKEN:
-        return
-    async with aiohttp.ClientSession() as session:
-        await session.post(f"{TELEGRAM_BOT_URL}/sendMessage", json={
-            "chat_id": chat_id, "text": text,
-            "parse_mode": "HTML", "disable_web_page_preview": True,
-        })
 
 
 # ----------------------------------------------------------
@@ -287,12 +395,12 @@ async def _check_states():
             await broadcast_state_change(tf, result.label, result.type, result.score, m)
             await send_web_push(result.label, tf, result.type)
 
-            scores = score_coins(tf, state)
+            scores     = score_coins(tf, state)
             alert_text = _format_alert(
                 result.label, result.type, tf,
                 get_top_strong(scores, 3), get_top_weak(scores, 3)
             )
-            await _send_telegram_alert(alert_text)
+            await _send_telegram_alert(alert_text, tf)  # ← passes tf for filtering
 
         elif prev == "":
             last = await database.get_latest_state(tf)
@@ -317,7 +425,6 @@ async def main():
     await database.init_db()
     set_state(state)
 
-    # Load volume averages from DB on startup
     try:
         avg = await database.get_volume_averages()
         if avg:

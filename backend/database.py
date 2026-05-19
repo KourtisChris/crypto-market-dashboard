@@ -5,10 +5,13 @@
 import asyncpg
 import logging
 import os
+import json
 
 logger = logging.getLogger(__name__)
 
 _pool = None
+
+DEFAULT_TF_SETTINGS = {"1M": True, "1H": True, "1D": True, "1W": True}
 
 
 async def init_db():
@@ -72,11 +75,16 @@ async def init_db():
         """)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS telegram_subscribers (
-                chat_id    TEXT PRIMARY KEY,
-                joined_at  TIMESTAMPTZ DEFAULT NOW()
+                chat_id     TEXT PRIMARY KEY,
+                joined_at   TIMESTAMPTZ DEFAULT NOW(),
+                tf_settings TEXT DEFAULT '{}'
             )
         """)
-        # Volume history for 30-day rolling average
+        # Add tf_settings column if it doesn't exist (for existing tables)
+        await conn.execute("""
+            ALTER TABLE telegram_subscribers
+            ADD COLUMN IF NOT EXISTS tf_settings TEXT DEFAULT '{}'
+        """)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS volume_history (
                 id          SERIAL PRIMARY KEY,
@@ -194,7 +202,6 @@ async def record_volume(btc_24h: float, alt_24h: float, total_24h: float):
             INSERT INTO volume_history (btc_24h, alt_24h, total_24h)
             VALUES ($1, $2, $3)
         """, btc_24h, alt_24h, total_24h)
-    # Cleanup old records > 31 days
     async with _pool.acquire() as conn:
         await conn.execute("""
             DELETE FROM volume_history
@@ -203,7 +210,6 @@ async def record_volume(btc_24h: float, alt_24h: float, total_24h: float):
 
 
 async def get_volume_averages() -> dict:
-    """Returns 30-day average volumes. Returns None if < 24h of data."""
     async with _pool.acquire() as conn:
         row = await conn.fetchrow("""
             SELECT
@@ -214,7 +220,7 @@ async def get_volume_averages() -> dict:
             FROM volume_history
             WHERE recorded_at >= NOW() - INTERVAL '30 days'
         """)
-    if not row or row["cnt"] < 24:  # Need at least 24 data points (1 day)
+    if not row or row["cnt"] < 24:
         return {}
     return {
         "btc_24h":   float(row["btc_24h"]   or 0),
@@ -227,11 +233,12 @@ async def get_volume_averages() -> dict:
 # Telegram Subscribers
 # ----------------------------------------------------------
 async def add_telegram_subscriber(chat_id: str):
+    default = json.dumps(DEFAULT_TF_SETTINGS)
     async with _pool.acquire() as conn:
         await conn.execute("""
-            INSERT INTO telegram_subscribers (chat_id)
-            VALUES ($1) ON CONFLICT (chat_id) DO NOTHING
-        """, chat_id)
+            INSERT INTO telegram_subscribers (chat_id, tf_settings)
+            VALUES ($1, $2) ON CONFLICT (chat_id) DO NOTHING
+        """, chat_id, default)
     logger.info(f"[Telegram] Subscriber added: {chat_id}")
 
 
@@ -247,6 +254,53 @@ async def get_telegram_subscribers() -> list[str]:
     async with _pool.acquire() as conn:
         rows = await conn.fetch("SELECT chat_id FROM telegram_subscribers")
     return [row["chat_id"] for row in rows]
+
+
+async def get_subscriber_tf_settings(chat_id: str) -> dict:
+    """Returns TF settings for a subscriber. Defaults all True if not set."""
+    async with _pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT tf_settings FROM telegram_subscribers WHERE chat_id = $1",
+            chat_id
+        )
+    if not row or not row["tf_settings"]:
+        return dict(DEFAULT_TF_SETTINGS)
+    try:
+        settings = json.loads(row["tf_settings"])
+        # Fill in any missing TFs with True
+        for tf in DEFAULT_TF_SETTINGS:
+            if tf not in settings:
+                settings[tf] = True
+        return settings
+    except:
+        return dict(DEFAULT_TF_SETTINGS)
+
+
+async def update_subscriber_tf_settings(chat_id: str, settings: dict):
+    """Update TF settings for a subscriber."""
+    async with _pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE telegram_subscribers
+            SET tf_settings = $2
+            WHERE chat_id = $1
+        """, chat_id, json.dumps(settings))
+
+
+async def get_subscribers_for_tf(tf: str) -> list[str]:
+    """Returns only subscribers who have this TF enabled."""
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT chat_id, tf_settings FROM telegram_subscribers"
+        )
+    result = []
+    for row in rows:
+        try:
+            settings = json.loads(row["tf_settings"] or "{}")
+            if settings.get(tf, True):  # default True if not set
+                result.append(row["chat_id"])
+        except:
+            result.append(row["chat_id"])
+    return result
 
 
 # ----------------------------------------------------------
