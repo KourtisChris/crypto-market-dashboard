@@ -38,13 +38,13 @@ TIMEFRAMES = {
 }
 
 # --- Signal thresholds (primary criteria) ---
-THRESHOLD_MULTIPLIER = 2
+THRESHOLD_MULTIPLIER = 1.5
 THRESHOLDS = {
     "1M": {
-        "btc":    0.04 * THRESHOLD_MULTIPLIER ,
-        "btcd":   0.0075 * THRESHOLD_MULTIPLIER ,
-        "total2": 0.05 * THRESHOLD_MULTIPLIER ,
-        "ethbtc": 0.03 * THRESHOLD_MULTIPLIER ,
+        "btc":    0.04 * THRESHOLD_MULTIPLIER * 1.5,
+        "btcd":   0.0075 * THRESHOLD_MULTIPLIER * 1.5,
+        "total2": 0.05 * THRESHOLD_MULTIPLIER * 1.5,
+        "ethbtc": 0.03 * THRESHOLD_MULTIPLIER * 1.5,
     },
     "1H": {
         "btc":    0.5 * THRESHOLD_MULTIPLIER,
