@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useStore } from '../store'
 import { useHeatmap } from '../hooks/useData'
 import { TFS, TF_LABELS } from '../utils'
@@ -15,8 +15,12 @@ const STATE_COLORS = {
   neutral:  'rgba(202, 204, 207, 0.74)',
 }
 
-// ---- Grid builders ----
-function buildGrid(tf, rawData, expanded = false, offsetRows = 0) {
+// Normal view rows
+const NORMAL_ROWS = { '1M': 4, '1H': 7, '1D': 6, '1W': 3 }
+// Expanded view rows — enough to always have vertical scroll
+const EXPANDED_ROWS = { '1M': 72, '1H': 90, '1D': 36, '1W': 10 }
+
+function buildGrid(tf, rawData, totalRows) {
   const map = {}
   for (const row of rawData) {
     const d = new Date(row.period)
@@ -30,13 +34,12 @@ function buildGrid(tf, rawData, expanded = false, offsetRows = 0) {
   const now = new Date()
 
   if (tf === '1M') {
-    const totalRows = expanded ? 24 : 4
     const cells = [], rowLabels = []
-    for (let h = totalRows - 1 + offsetRows; h >= offsetRows; h--) {
+    for (let h = totalRows - 1; h >= 0; h--) {
       const rowCells = []
       const hourDate = new Date(now)
       hourDate.setUTCHours(hourDate.getUTCHours() - h, 0, 0, 0)
-      rowLabels.push(hourDate.getUTCHours().toString().padStart(2,'00') + ':00')
+      rowLabels.push(hourDate.getUTCHours().toString().padStart(2, '0') + ':00')
       for (let min = 0; min < 60; min++) {
         const d = new Date(hourDate); d.setUTCMinutes(min)
         rowCells.push({ key: d.toISOString().slice(0,16), data: map[d.toISOString().slice(0,16)] || null, isFuture: d > now, ts: d })
@@ -47,9 +50,8 @@ function buildGrid(tf, rawData, expanded = false, offsetRows = 0) {
   }
 
   if (tf === '1H') {
-    const totalRows = expanded ? 30 : 7
     const cells = [], rowLabels = []
-    for (let day = totalRows - 1 + offsetRows; day >= offsetRows; day--) {
+    for (let day = totalRows - 1; day >= 0; day--) {
       const rowCells = []
       const dayDate = new Date(now)
       dayDate.setUTCDate(dayDate.getUTCDate() - day)
@@ -64,9 +66,8 @@ function buildGrid(tf, rawData, expanded = false, offsetRows = 0) {
   }
 
   if (tf === '1D') {
-    const totalMonths = expanded ? 12 : 6
     const cells = [], rowLabels = []
-    for (let m = totalMonths - 1 + offsetRows; m >= offsetRows; m--) {
+    for (let m = totalRows - 1; m >= 0; m--) {
       const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - m, 1))
       rowLabels.push(month.toLocaleString('en', { month: 'short', year: '2-digit', timeZone: 'UTC' }))
       const rowCells = []
@@ -80,14 +81,14 @@ function buildGrid(tf, rawData, expanded = false, offsetRows = 0) {
   }
 
   // 1W
-  const totalYears = expanded ? 5 : 3
   const cells = [], rowLabels = []
   const yr = now.getUTCFullYear()
-  for (let y = totalYears - 1 + offsetRows; y >= offsetRows; y--) {
-    const year = yr - y; rowLabels.push(year.toString())
+  for (let y = totalRows - 1; y >= 0; y--) {
+    const year = yr - y
+    rowLabels.push(year.toString())
     const rowCells = []
     for (let w = 1; w <= 52; w++) {
-      const weekKey = `${year}-W${w.toString().padStart(2,'00')}`
+      const weekKey = `${year}-W${w.toString().padStart(2, '0')}`
       const ws = isoWeekToDate(year, w)
       rowCells.push({ key: weekKey, data: map[weekKey] || null, isFuture: ws > now, ts: ws })
     }
@@ -100,7 +101,7 @@ function getISOWeek(d) {
   const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
   date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7))
   const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1))
-  return `${date.getUTCFullYear()}-W${Math.ceil((((date - yearStart) / 86400000) + 1) / 7).toString().padStart(2,'00')}`
+  return `${date.getUTCFullYear()}-W${Math.ceil((((date - yearStart) / 86400000) + 1) / 7).toString().padStart(2, '0')}`
 }
 
 function isoWeekToDate(year, week) {
@@ -119,17 +120,17 @@ function formatTooltip(tf, ts, stateLabel) {
   return stateLabel ? `${stateLabel} | ${dateStr}` : dateStr
 }
 
-// Max offset per TF (how far back you can scroll)
-const MAX_OFFSET = { '1M': 48, '1H': 60, '1D': 24, '1W': 10 }
+function HeatmapGrid({ tf, rawData, expanded = false, cellSize = 15 }) {
+  const totalRows = expanded ? EXPANDED_ROWS[tf] : NORMAL_ROWS[tf]
+  const grid = buildGrid(tf, rawData, totalRows)
+  const labelW = expanded ? '44px' : '36px'
+  const fontSize = expanded ? '10px' : '9px'
 
-// ---- HeatmapGrid component (reusable) ----
-function HeatmapGrid({ tf, rawData, expanded = false, offsetRows = 0, cellSize = 15 }) {
-  const grid = buildGrid(tf, rawData, expanded, offsetRows)
   return (
     <div className="heatmap-grid">
       {grid.cells.map((row, ri) => (
         <div key={ri} className="heatmap-row">
-          <div className="heatmap-row-label" style={{ fontSize: expanded ? '10px' : '9px', width: expanded ? '44px' : '36px' }}>
+          <div className="heatmap-row-label" style={{ fontSize, width: labelW }}>
             {grid.rowLabels[ri]}
           </div>
           {row.map((cell, ci) => {
@@ -156,23 +157,26 @@ function HeatmapGrid({ tf, rawData, expanded = false, offsetRows = 0, cellSize =
   )
 }
 
-// ---- Expanded Modal ----
+// Extended intervals for expanded view
+const EXT_INTERVALS = {
+  '1M': '72 hours',
+  '1H': '90 days',
+  '1D': '1095 days',
+  '1W': '520 weeks',
+}
+
 function HeatmapModal({ tf, onClose }) {
   const [extendedData, setExtendedData] = useState([])
   const [loading, setLoading] = useState(true)
 
-  // Extended intervals for expanded view
-  const extIntervals = { '1M': '72 hours', '1H': '90 days', '1D': '540 days', '1W': '520 weeks' }
-
   useEffect(() => {
     setLoading(true)
-    fetch(`${BASE}/api/heatmap/${tf}?interval=${encodeURIComponent(extIntervals[tf])}`)
+    fetch(`${BASE}/api/heatmap/${tf}?interval=${encodeURIComponent(EXT_INTERVALS[tf])}`)
       .then(r => r.json())
       .then(d => { setExtendedData(d.data || []); setLoading(false) })
       .catch(() => setLoading(false))
   }, [tf])
 
-  // Close on Escape
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', handler)
@@ -181,41 +185,32 @@ function HeatmapModal({ tf, onClose }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div
-        className="heatmap-modal-box"
-        onClick={e => e.stopPropagation()}
-      >
+      <div className="heatmap-modal-box" onClick={e => e.stopPropagation()}>
+
         {/* Header */}
         <div className="heatmap-modal-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span className="section-title">Market State Heatmap — {TF_LABELS[tf]}</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button className="modal-close" onClick={onClose}>✕</button>
-          </div>
+          <span className="section-title">Market State Heatmap — {TF_LABELS[tf]}</span>
+          <button className="modal-close" onClick={onClose}>✕</button>
         </div>
 
-        {/* Grid */}
+        {/* Scrollable grid */}
         <div className="heatmap-modal-content">
           {loading ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '200px' }}>
               <div className="spinner" />
             </div>
           ) : (
-            <div className="heatmap-scroll">
-              <HeatmapGrid
-                tf={tf}
-                rawData={extendedData}
-                expanded={true}
-                offsetRows={0}
-                cellSize={13}
-              />
-            </div>
+            <HeatmapGrid
+              tf={tf}
+              rawData={extendedData}
+              expanded={true}
+              cellSize={13}
+            />
           )}
         </div>
 
         {/* Legend */}
-        <div className="heatmap-legend" style={{ marginTop: '16px' }}>
+        <div className="heatmap-legend" style={{ marginTop: '16px', flexShrink: 0 }}>
           {Object.entries(STATE_COLORS).map(([type, color]) => (
             <div key={type} className="legend-item">
               <div className="legend-dot" style={{ background: color }} />
@@ -232,7 +227,6 @@ function HeatmapModal({ tf, onClose }) {
   )
 }
 
-// ---- Main Heatmap component ----
 export default function Heatmap() {
   const tf      = useStore(s => s.activeTf)
   const setTf   = useStore(s => s.setActiveTf)
