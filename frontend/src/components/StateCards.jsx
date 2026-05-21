@@ -9,17 +9,17 @@ function calcSinceSignal(stateType, stateLabel, latestState, currentPrices, curr
   let signalPrice = 0, currentPrice = 0, assetName = ''
 
   if (label.includes('btc long') || label.includes('risk off')) {
-    signalPrice  = latestState.btc_price || 0
+    signalPrice = latestState.btc_price || 0
     currentPrice = currentPrices?.BTCUSDT || 0
-    assetName    = 'BTC'
+    assetName = 'BTC'
   } else if (label.includes('eth leading')) {
-    signalPrice  = latestState.eth_price || 0
+    signalPrice = latestState.eth_price || 0
     currentPrice = currentPrices?.ETHUSDT || 0
-    assetName    = 'ETH'
+    assetName = 'ETH'
   } else if (label.includes('alts long') || label.includes('late alts') || label.includes('alts short')) {
-    signalPrice  = latestState.total2_val || 0
+    signalPrice = latestState.total2_val || 0
     currentPrice = currentGlobal?.total2 || 0
-    assetName    = 'TOTAL2'
+    assetName = 'TOTAL2'
   }
 
   if (!signalPrice || !currentPrice) return null
@@ -30,17 +30,17 @@ function calcSinceSignal(stateType, stateLabel, latestState, currentPrices, curr
 
 // Confidence color
 function confidenceColor(level) {
-  if (level === 'High')   return '#39ff14'
-  if (level === 'Medium') return '#ffab00'
-  if (level === 'Low')    return '#ff6b35'
+  if (level === 'High') return 'rgba(200,205,216,0.4)'
+  if (level === 'Medium') return 'rgba(200,205,216,0.4)'
+  if (level === 'Low') return 'rgba(200,205,216,0.4)'
   return 'rgba(200,205,216,0.4)'
 }
 
 export default function StateCards() {
-  const states       = useStore(s => s.states)
-  const metrics      = useStore(s => s.metrics)
-  const prices       = useStore(s => s.prices)
-  const global_      = useStore(s => s.global)
+  const states = useStore(s => s.states)
+  const metrics = useStore(s => s.metrics)
+  const prices = useStore(s => s.prices)
+  const global_ = useStore(s => s.global)
   const latestStates = useLatestStates()
   const confirmations = useConfirmations()
 
@@ -49,29 +49,29 @@ export default function StateCards() {
       <div className="section-title">Market State</div>
       <div className="state-grid">
         {TFS.map(tf => {
-          const s    = states[tf]
-          const m    = metrics[tf] || {}
+          const s = states[tf]
+          const m = metrics[tf] || {}
           const last = latestStates[tf]
 
-          const cls   = s ? typeClass(s.type) : 'neutral'
+          const cls = s ? typeClass(s.type) : 'neutral'
           const since = s && last
             ? calcSinceSignal(s.type, s.label, last, prices, global_)
             : null
 
           // Confirmation scores for this TF
-          const tfScores     = confirmations?.all_scores?.[tf] || []
+          const tfScores = confirmations?.all_scores?.[tf] || []
           const activeSignal = tfScores.find(sc => sc.active)
-          const hits         = activeSignal?.hits  || s?.hits  || 0
-          const total        = activeSignal?.total || s?.total || 0
-          const confidence   = activeSignal?.confidence || s?.confidence || 'None'
-          const confColor    = confidenceColor(confidence)
+          const hits = activeSignal?.hits || s?.hits || 0
+          const total = activeSignal?.total || s?.total || 0
+          const confidence = activeSignal?.confidence || s?.confidence || 'None'
+          const confColor = confidenceColor(confidence)
 
           // Legacy strength bar (activity-based)
-          const score       = s?.score || 0
-          const scoreNorm   = Math.min(100, (score * 100) / 5)
-          const activity    = Math.min(100,
-            Math.abs(m.btc_chg    || 0) * 5  +
-            Math.abs(m.btcd_chg   || 0) * 20 +
+          const score = s?.score || 0
+          const scoreNorm = Math.min(100, (score * 100) / 5)
+          const activity = Math.min(100,
+            Math.abs(m.btc_chg || 0) * 5 +
+            Math.abs(m.btcd_chg || 0) * 20 +
             Math.abs(m.total2_chg || 0) * 4
           )
           const strength = Math.round(scoreNorm * 0.6 + activity * 0.4)
@@ -125,12 +125,12 @@ export default function StateCards() {
                       className="strength-fill"
                       style={{
                         width: total > 0 ? `${(hits / total) * 100}%` : '0%',
-                        background: confColor,
+                        background: s ? typeColor(s.type) : 'var(--muted)',
                       }}
                     />
                   </div>
-                  <div className="strength-label" style={{ color: confColor }}>
-                    {total > 0 ? `${hits}/${total}` : '—'} · {confidence !== 'None' ? confidence : 'No signal'}
+                  <div className="strength-label">
+                    {total > 0 ? `${hits}/${total} Confirmations` : '—'}
                   </div>
                 </div>
               )}
