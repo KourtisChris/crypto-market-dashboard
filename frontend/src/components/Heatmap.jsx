@@ -159,7 +159,6 @@ function HeatmapGrid({ tf, rawData, expanded = false, offsetRows = 0, cellSize =
 // ---- Expanded Modal ----
 function HeatmapModal({ tf, onClose }) {
   const [extendedData, setExtendedData] = useState([])
-  const [offsetRows, setOffsetRows] = useState(0)
   const [loading, setLoading] = useState(true)
 
   // Extended intervals for expanded view
@@ -172,10 +171,6 @@ function HeatmapModal({ tf, onClose }) {
       .then(d => { setExtendedData(d.data || []); setLoading(false) })
       .catch(() => setLoading(false))
   }, [tf])
-
-  const maxOffset = MAX_OFFSET[tf]
-  const canGoBack    = offsetRows < maxOffset
-  const canGoForward = offsetRows > 0
 
   // Close on Escape
   useEffect(() => {
@@ -196,22 +191,6 @@ function HeatmapModal({ tf, onClose }) {
             <span className="section-title">Market State Heatmap — {TF_LABELS[tf]}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {/* Navigation */}
-            <button
-              className="heatmap-nav-btn"
-              onClick={() => setOffsetRows(o => Math.min(o + 1, maxOffset))}
-              disabled={!canGoBack}
-              title="Go further back"
-            >◀</button>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--muted)', minWidth: '60px', textAlign: 'center' }}>
-              {offsetRows === 0 ? 'Latest' : `−${offsetRows}`}
-            </span>
-            <button
-              className="heatmap-nav-btn"
-              onClick={() => setOffsetRows(o => Math.max(o - 1, 0))}
-              disabled={!canGoForward}
-              title="Go forward"
-            >▶</button>
             <button className="modal-close" onClick={onClose}>✕</button>
           </div>
         </div>
