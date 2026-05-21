@@ -483,3 +483,72 @@ body::before {
   padding: 1px 5px; border-radius: 3px;
   font-size: 11px; color: var(--text);
 }
+
+/* ---- HEATMAP EXPAND BUTTON ---- */
+.heatmap-expand-btn {
+  font-size: 16px;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  line-height: 1;
+}
+.heatmap-expand-btn:hover {
+  border-color: var(--border2);
+  color: var(--text);
+}
+
+/* ---- HEATMAP MODAL ---- */
+.heatmap-modal-box {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 14px;
+  padding: 24px;
+  width: 95vw;
+  max-width: 1200px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  animation: slideUp 0.2s ease;
+}
+
+.heatmap-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.heatmap-modal-content {
+  overflow: auto;
+  flex: 1;
+}
+
+.heatmap-modal-content .heatmap-scroll {
+  justify-content: flex-start;
+}
+
+/* ---- NAV BUTTONS ---- */
+.heatmap-nav-btn {
+  background: var(--bg4);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s;
+}
+.heatmap-nav-btn:hover:not(:disabled) {
+  border-color: var(--bull);
+  color: var(--bull);
+}
+.heatmap-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}

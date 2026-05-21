@@ -44,9 +44,11 @@ export function useHistory(tf) {
   const history    = useStore(s => s.history[tf])
   const setHistory = useStore(s => s.setHistory)
   useEffect(() => {
-    if (!history.length) {
+    fetchHistory(tf).then(rows => setHistory(tf, rows))
+    const id = setInterval(() => {
       fetchHistory(tf).then(rows => setHistory(tf, rows))
-    }
+    }, 60000)
+    return () => clearInterval(id)
   }, [tf])
   return history
 }

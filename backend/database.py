@@ -80,7 +80,6 @@ async def init_db():
                 tf_settings TEXT DEFAULT '{}'
             )
         """)
-        # Add tf_settings column if it doesn't exist (for existing tables)
         await conn.execute("""
             ALTER TABLE telegram_subscribers
             ADD COLUMN IF NOT EXISTS tf_settings TEXT DEFAULT '{}'
@@ -176,18 +175,24 @@ async def record_heatmap_state(tf: str, state_label: str, state_type: str):
         """, tf, state_label, state_type)
 
 
-async def get_heatmap_data(tf: str) -> list[dict]:
-    trunc_map    = {"1M": "minute", "1H": "hour",      "1D": "day",      "1W": "week"}
-    interval_map = {"1M": "24 hours","1H": "168 hours", "1D": "180 days", "1W": "156 weeks"}
-    trunc    = trunc_map[tf]
-    interval = interval_map[tf]
+async def get_heatmap_data(tf: str, interval: str = None) -> list[dict]:
+    trunc_map = {"1M": "minute", "1H": "hour", "1D": "day", "1W": "week"}
+    default_intervals = {
+        "1M": "24 hours",
+        "1H": "168 hours",
+        "1D": "180 days",
+        "1W": "156 weeks",
+    }
+    trunc         = trunc_map[tf]
+    used_interval = interval if interval else default_intervals[tf]
+
     async with _pool.acquire() as conn:
         rows = await conn.fetch(f"""
             SELECT DISTINCT ON (date_trunc('{trunc}', recorded_at))
                 date_trunc('{trunc}', recorded_at) AS period,
                 state_label, state_type
             FROM heatmap_history
-            WHERE tf = $1 AND recorded_at >= NOW() - INTERVAL '{interval}'
+            WHERE tf = $1 AND recorded_at >= NOW() - INTERVAL '{used_interval}'
             ORDER BY date_trunc('{trunc}', recorded_at) DESC, recorded_at DESC
         """, tf)
     return [dict(r) for r in rows]
@@ -257,7 +262,6 @@ async def get_telegram_subscribers() -> list[str]:
 
 
 async def get_subscriber_tf_settings(chat_id: str) -> dict:
-    """Returns TF settings for a subscriber. Defaults all True if not set."""
     async with _pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT tf_settings FROM telegram_subscribers WHERE chat_id = $1",
@@ -267,7 +271,6 @@ async def get_subscriber_tf_settings(chat_id: str) -> dict:
         return dict(DEFAULT_TF_SETTINGS)
     try:
         settings = json.loads(row["tf_settings"])
-        # Fill in any missing TFs with True
         for tf in DEFAULT_TF_SETTINGS:
             if tf not in settings:
                 settings[tf] = True
@@ -277,7 +280,6 @@ async def get_subscriber_tf_settings(chat_id: str) -> dict:
 
 
 async def update_subscriber_tf_settings(chat_id: str, settings: dict):
-    """Update TF settings for a subscriber."""
     async with _pool.acquire() as conn:
         await conn.execute("""
             UPDATE telegram_subscribers
@@ -287,7 +289,6 @@ async def update_subscriber_tf_settings(chat_id: str, settings: dict):
 
 
 async def get_subscribers_for_tf(tf: str) -> list[str]:
-    """Returns only subscribers who have this TF enabled."""
     async with _pool.acquire() as conn:
         rows = await conn.fetch(
             "SELECT chat_id, tf_settings FROM telegram_subscribers"
@@ -296,7 +297,7 @@ async def get_subscribers_for_tf(tf: str) -> list[str]:
     for row in rows:
         try:
             settings = json.loads(row["tf_settings"] or "{}")
-            if settings.get(tf, True):  # default True if not set
+            if settings.get(tf, True):
                 result.append(row["chat_id"])
         except:
             result.append(row["chat_id"])

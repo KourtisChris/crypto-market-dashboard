@@ -91,7 +91,6 @@ async def snapshot():
 
 @router.get("/api/confirmations")
 async def confirmations():
-    """Returns current confirmation data and all signal scores."""
     prices = _state.get("prices", {})
     glb    = _state.get("global", {})
 
@@ -128,23 +127,23 @@ async def confirmations():
     return {
         "timestamp": time.time(),
         "raw_data": {
-            "btc_volume_24h":    vol.get("btc_24h",   0),
+            "btc_volume_24h":     vol.get("btc_24h",   0),
             "btc_volume_30d_avg": vol_avg.get("btc_24h", None),
-            "alt_volume_24h":    vol.get("alt_24h",   0),
+            "alt_volume_24h":     vol.get("alt_24h",   0),
             "alt_volume_30d_avg": vol_avg.get("alt_24h", None),
-            "total_volume_24h":  vol.get("total_24h", 0),
-            "funding_rate":      fund.get("rate"),
-            "fear_greed_value":  fg.get("value"),
-            "fear_greed_label":  fg.get("label", "Unknown"),
-            "stable_d":          round(stable_d, 2),
+            "total_volume_24h":   vol.get("total_24h", 0),
+            "funding_rate":       fund.get("rate"),
+            "fear_greed_value":   fg.get("value"),
+            "fear_greed_label":   fg.get("label", "Unknown"),
+            "stable_d":           round(stable_d, 2),
             "stable_d_1h_change": round(c.stable_d_change, 3) if c.stable_d_change is not None else None,
-            "usdt_d":            round(glb.get("usdt_d", 0), 2),
-            "usdc_d":            round(glb.get("usdc_d", 0), 2),
+            "usdt_d":             round(glb.get("usdt_d", 0), 2),
+            "usdc_d":             round(glb.get("usdc_d", 0), 2),
         },
         "stale_flags": {
-            "volume":      c.volume_stale,
-            "funding":     c.funding_stale,
-            "fear_greed":  c.fear_greed_stale,
+            "volume":     c.volume_stale,
+            "funding":    c.funding_stale,
+            "fear_greed": c.fear_greed_stale,
         },
         "evaluated": {
             "volume":     _eval_volume_label(c),
@@ -165,10 +164,10 @@ async def history(tf: str, limit: int = 50):
 
 
 @router.get("/api/heatmap/{tf}")
-async def heatmap(tf: str):
+async def heatmap(tf: str, interval: str = None):
     if tf not in TIMEFRAMES:
         raise HTTPException(400, f"Invalid tf. Use: {list(TIMEFRAMES.keys())}")
-    rows = await database.get_heatmap_data(tf)
+    rows = await database.get_heatmap_data(tf, interval=interval)
     return {"tf": tf, "data": _serialize(rows)}
 
 
@@ -238,32 +237,26 @@ def _eval_funding_label(rate) -> str:
     if rate is None:
         return "unknown"
     from config import FUNDING_DEEPLY_NEGATIVE, FUNDING_NEUTRAL_MIN, FUNDING_NEUTRAL_MAX, FUNDING_HIGH_POSITIVE
-    if rate < FUNDING_DEEPLY_NEGATIVE:
-        return "deeply_negative"
-    if rate < FUNDING_NEUTRAL_MIN:
-        return "negative"
-    if rate <= FUNDING_NEUTRAL_MAX:
-        return "neutral"
-    if rate > FUNDING_HIGH_POSITIVE:
-        return "high_positive"
+    if rate < FUNDING_DEEPLY_NEGATIVE:   return "deeply_negative"
+    if rate < FUNDING_NEUTRAL_MIN:       return "negative"
+    if rate <= FUNDING_NEUTRAL_MAX:      return "neutral"
+    if rate > FUNDING_HIGH_POSITIVE:     return "high_positive"
     return "positive"
 
 def _eval_fg_label(val) -> str:
-    if val is None:
-        return "unknown"
-    if val < 20:  return "extreme_fear"
-    if val < 40:  return "fear"
-    if val < 60:  return "neutral"
-    if val < 75:  return "greed"
+    if val is None: return "unknown"
+    if val < 20:    return "extreme_fear"
+    if val < 40:    return "fear"
+    if val < 60:    return "neutral"
+    if val < 75:    return "greed"
     return "extreme_greed"
 
 def _eval_stable_label(change) -> str:
-    if change is None:
-        return "unknown"
+    if change is None: return "unknown"
     from config import STABLE_D_SHARPLY_RISING, STABLE_D_RISING, STABLE_D_FALLING
-    if change > STABLE_D_SHARPLY_RISING:  return "sharply_rising"
-    if change > STABLE_D_RISING:          return "rising"
-    if change < STABLE_D_FALLING:         return "falling"
+    if change > STABLE_D_SHARPLY_RISING: return "sharply_rising"
+    if change > STABLE_D_RISING:         return "rising"
+    if change < STABLE_D_FALLING:        return "falling"
     return "neutral"
 
 def _coin_dict(c) -> dict:

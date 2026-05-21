@@ -27,12 +27,16 @@ export function useWebSocket() {
         setConnected(true)
       }
 
-      ws.current.onmessage = (e) => {
+      ws.current.onmessage = async (e) => {
         const msg = JSON.parse(e.data)
         if (msg.type === 'snapshot') {
           setSnapshot(msg)
         } else if (msg.type === 'state_change') {
           setLastAlert({ ...msg, receivedAt: Date.now() })
+          // Refresh history immediately on state change
+          const { fetchHistory } = await import('../hooks/useData')
+          const store = useStore.getState()
+          fetchHistory(msg.tf).then(rows => store.setHistory(msg.tf, rows))
         }
       }
 
