@@ -207,7 +207,7 @@ function HeatmapModal({ tf, onClose }) {
                 tf={tf}
                 rawData={extendedData}
                 expanded={true}
-                offsetRows={offsetRows}
+                offsetRows={0}
                 cellSize={13}
               />
             </div>
