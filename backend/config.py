@@ -38,7 +38,7 @@ TIMEFRAMES = {
 }
 
 # --- Signal thresholds (primary criteria) ---
-THRESHOLD_MULTIPLIER = 0.07
+THRESHOLD_MULTIPLIER = 0.21
 THRESHOLDS = {
     "1M": {
         "btc":    0.04 * THRESHOLD_MULTIPLIER * 3,
