@@ -70,7 +70,7 @@ export function useLatestStates() {
   const [latestStates, setLatestStates] = useState({})
   useEffect(() => {
     fetchLatestStates().then(setLatestStates)
-    const id = setInterval(() => fetchLatestStates().then(setLatestStates), 60000)
+    const id = setInterval(() => fetchLatestStates().then(setLatestStates), 10000)
     return () => clearInterval(id)
   }, [])
   return latestStates
@@ -82,7 +82,7 @@ export function useConfirmations() {
   const setConfirmations = useStore(s => s.setConfirmations)
   useEffect(() => {
     fetchConfirmations().then(setConfirmations)
-    const id = setInterval(() => fetchConfirmations().then(setConfirmations), 60000)
+    const id = setInterval(() => fetchConfirmations().then(setConfirmations), 10000)
     return () => clearInterval(id)
   }, [])
   return confirmations

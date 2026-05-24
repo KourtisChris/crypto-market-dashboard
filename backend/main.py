@@ -87,6 +87,9 @@ state: dict = {
 
 prev_states: dict[str, str] = {tf: "" for tf in TIMEFRAMES}
 
+# Authoritative hysteresis state — only engine loop reads/writes this
+active_signals: dict[str, str] = {tf: "" for tf in TIMEFRAMES}
+
 
 # ----------------------------------------------------------
 # Volume average loops
@@ -153,7 +156,6 @@ def _format_alert(state_label, state_type, tf, strong_coins, weak_coins):
 
 
 async def _send_telegram_alert(text: str, tf: str):
-    """Sends alert only to subscribers who have this TF enabled."""
     if not TELEGRAM_TOKEN:
         return
     subscribers = await database.get_subscribers_for_tf(tf)
@@ -182,10 +184,8 @@ async def _send_message(chat_id, text, reply_markup=None):
     if not TELEGRAM_TOKEN:
         return
     payload = {
-        "chat_id":                  chat_id,
-        "text":                     text,
-        "parse_mode":               "HTML",
-        "disable_web_page_preview": True,
+        "chat_id": chat_id, "text": text,
+        "parse_mode": "HTML", "disable_web_page_preview": True,
     }
     if reply_markup:
         payload["reply_markup"] = reply_markup
@@ -197,10 +197,8 @@ async def _edit_message(chat_id, message_id, text, reply_markup=None):
     if not TELEGRAM_TOKEN:
         return
     payload = {
-        "chat_id":    chat_id,
-        "message_id": message_id,
-        "text":       text,
-        "parse_mode": "HTML",
+        "chat_id": chat_id, "message_id": message_id,
+        "text": text, "parse_mode": "HTML",
     }
     if reply_markup:
         payload["reply_markup"] = reply_markup
@@ -218,13 +216,11 @@ async def _answer_callback(callback_query_id: str):
 
 
 def _settings_keyboard(settings: dict) -> dict:
-    """Builds inline keyboard for TF settings."""
     def btn(tf):
         enabled = settings.get(tf, True)
         icon    = "✅" if enabled else "❌"
-        label   = TF_LABELS[tf].replace("1 ", "")  # "Minute", "Hour", etc
+        label   = TF_LABELS[tf].replace("1 ", "")
         return {"text": f"{icon} {label}", "callback_data": f"toggle_{tf}"}
-
     return {
         "inline_keyboard": [
             [btn("1M"), btn("1H")],
@@ -238,9 +234,9 @@ async def _send_welcome(chat_id):
     text = (
         "👋 <b>Welcome to Market State Alerts!</b>\n\n"
         "You will now receive alerts whenever the crypto market state changes.\n\n"
-        # "<b>States tracked:</b>\n"
-        # "🟢 Alts Long · 🔴 Alts Short · 🟠 BTC Long\n"
-        # "🔵 ETH Leading · 🟡 Late Alts · ⚫ Risk Off · ⚪ Neutral\n\n"
+        "<b>States tracked:</b>\n"
+        "🟢 Alts Long · 🔴 Alts Short · 🟠 BTC Long\n"
+        "🔵 ETH Leading · 🟡 Late Alts · ⚫ Risk Off · ⚪ Neutral\n\n"
         f'📊 <a href="{DASHBOARD_URL}">Open Dashboard</a>\n'
         f'📖 <a href="{ALERT_GUIDE_URL}">Alert Guide</a>\n\n'
         "<i>Send /stop to unsubscribe.</i>"
@@ -254,11 +250,9 @@ async def _send_welcome(chat_id):
 
 
 async def _handle_settings(chat_id, message_id=None):
-    """Shows TF settings keyboard."""
     settings = await database.get_subscriber_tf_settings(chat_id)
     text     = "⚙️ <b>Alert Settings</b>\n\nChoose which timeframes to receive alerts for:"
     keyboard = _settings_keyboard(settings)
-
     if message_id:
         await _edit_message(chat_id, message_id, text, keyboard)
     else:
@@ -291,7 +285,6 @@ async def telegram_poll():
             for update in data.get("result", []):
                 offset = update["update_id"] + 1
 
-                # Handle regular messages
                 msg = update.get("message", {})
                 if msg:
                     text    = msg.get("text", "").strip()
@@ -310,7 +303,6 @@ async def telegram_poll():
                     elif text == "/settings":
                         await _handle_settings(chat_id)
 
-                # Handle inline button callbacks
                 cb = update.get("callback_query", {})
                 if cb:
                     cb_id      = cb.get("id")
@@ -323,15 +315,13 @@ async def telegram_poll():
 
                     if cb_data == "open_settings":
                         await _handle_settings(chat_id, message_id)
-
                     elif cb_data.startswith("toggle_"):
-                        tf       = cb_data.replace("toggle_", "")  # e.g. "1H"
+                        tf       = cb_data.replace("toggle_", "")
                         settings = await database.get_subscriber_tf_settings(chat_id)
                         settings[tf] = not settings.get(tf, True)
                         await database.update_subscriber_tf_settings(chat_id, settings)
                         await _handle_settings(chat_id, message_id)
                         logger.info(f"[Telegram] {chat_id} toggled {tf} → {settings[tf]}")
-
                     elif cb_data == "settings_done":
                         settings = await database.get_subscriber_tf_settings(chat_id)
                         enabled  = [tf for tf, v in settings.items() if v]
@@ -346,7 +336,7 @@ async def telegram_poll():
 
 
 # ----------------------------------------------------------
-# Engine loop
+# Engine loop — ONLY place that reads/writes active_signals
 # ----------------------------------------------------------
 async def engine_loop():
     logger.info("[Engine] Waiting for initial data...")
@@ -373,7 +363,8 @@ async def _check_states():
         if m is None:
             continue
 
-        result = get_market_state(m, tf, state)
+        # Pass active_signals so hysteresis is managed only here
+        result = get_market_state(m, tf, state, active_signals)
         prev   = prev_states.get(tf, "")
 
         logger.info(
@@ -400,7 +391,7 @@ async def _check_states():
                 result.label, result.type, tf,
                 get_top_strong(scores, 3), get_top_weak(scores, 3)
             )
-            await _send_telegram_alert(alert_text, tf)  # ← passes tf for filtering
+            await _send_telegram_alert(alert_text, tf)
 
         elif prev == "":
             last = await database.get_latest_state(tf)
