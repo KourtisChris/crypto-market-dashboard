@@ -394,19 +394,19 @@ def get_market_state(m: Metrics, tf: str, state: dict = None,
 
     winner = None
 
-    # # 1. If a signal was previously active, check exit threshold
-    # if prev_label and prev_label in current_map:
-    #     prev_signal = current_map[prev_label]
-    #     if prev_signal.conf_hits > CONF_EXIT:
-    #         winner = prev_signal
     # 1. If a signal was previously active, check exit threshold
     if prev_label and prev_label in current_map:
         prev_signal = current_map[prev_label]
-        from logging import getLogger
-        _log = getLogger("engine.signals")
-        _log.info(f"[Hysteresis] {tf} prev={prev_label} conf_hits={prev_signal.conf_hits} CONF_EXIT={CONF_EXIT}")
         if prev_signal.conf_hits > CONF_EXIT:
             winner = prev_signal
+    # 1. If a signal was previously active, check exit threshold
+    # if prev_label and prev_label in current_map:
+    #     prev_signal = current_map[prev_label]
+    #     from logging import getLogger
+    #     _log = getLogger("engine.signals")
+    #     _log.info(f"[Hysteresis] {tf} prev={prev_label} conf_hits={prev_signal.conf_hits} CONF_EXIT={CONF_EXIT}")
+    #     if prev_signal.conf_hits > CONF_EXIT:
+    #         winner = prev_signal
 
     # 2. If no active signal held, try entry
     if winner is None:
