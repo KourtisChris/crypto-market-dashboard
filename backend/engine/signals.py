@@ -28,7 +28,7 @@ from feeds.binance import get_pct_change, get_altbtc_pct
 from feeds.coingecko import get_global_pct_change, get_stable_d_change, get_fear_greed
 
 CONF_ENTRY = 1   # min conf_hits to activate a signal
-CONF_EXIT  = 1   # signal deactivates when conf_hits <= this
+CONF_EXIT  = 0   # signal deactivates when conf_hits <= this
 
 
 # ----------------------------------------------------------
@@ -394,9 +394,17 @@ def get_market_state(m: Metrics, tf: str, state: dict = None,
 
     winner = None
 
+    # # 1. If a signal was previously active, check exit threshold
+    # if prev_label and prev_label in current_map:
+    #     prev_signal = current_map[prev_label]
+    #     if prev_signal.conf_hits > CONF_EXIT:
+    #         winner = prev_signal
     # 1. If a signal was previously active, check exit threshold
     if prev_label and prev_label in current_map:
         prev_signal = current_map[prev_label]
+        from logging import getLogger
+        _log = getLogger("engine.signals")
+        _log.info(f"[Hysteresis] {tf} prev={prev_label} conf_hits={prev_signal.conf_hits} CONF_EXIT={CONF_EXIT}")
         if prev_signal.conf_hits > CONF_EXIT:
             winner = prev_signal
 
@@ -492,3 +500,4 @@ def get_top_strong(scores: list[CoinScore], n: int = 5) -> list[CoinScore]:
 
 def get_top_weak(scores: list[CoinScore], n: int = 5) -> list[CoinScore]:
     return sorted(scores, key=lambda x: x.score)[:n]
+
